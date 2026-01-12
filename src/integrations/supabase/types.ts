@@ -14,6 +14,134 @@ export type Database = {
   }
   public: {
     Tables: {
+      analyses: {
+        Row: {
+          ai_interpretation: string | null
+          apa_results: string | null
+          config: Json | null
+          created_at: string
+          current_step: number
+          dataset_id: string
+          discussion: string | null
+          hypothesis: string | null
+          id: string
+          is_pro_analysis: boolean | null
+          project_id: string
+          research_question: string | null
+          results: Json | null
+          selected_variables: Json | null
+          status: Database["public"]["Enums"]["analysis_status"]
+          test_category: string | null
+          test_type: string | null
+          updated_at: string
+        }
+        Insert: {
+          ai_interpretation?: string | null
+          apa_results?: string | null
+          config?: Json | null
+          created_at?: string
+          current_step?: number
+          dataset_id: string
+          discussion?: string | null
+          hypothesis?: string | null
+          id?: string
+          is_pro_analysis?: boolean | null
+          project_id: string
+          research_question?: string | null
+          results?: Json | null
+          selected_variables?: Json | null
+          status?: Database["public"]["Enums"]["analysis_status"]
+          test_category?: string | null
+          test_type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ai_interpretation?: string | null
+          apa_results?: string | null
+          config?: Json | null
+          created_at?: string
+          current_step?: number
+          dataset_id?: string
+          discussion?: string | null
+          hypothesis?: string | null
+          id?: string
+          is_pro_analysis?: boolean | null
+          project_id?: string
+          research_question?: string | null
+          results?: Json | null
+          selected_variables?: Json | null
+          status?: Database["public"]["Enums"]["analysis_status"]
+          test_category?: string | null
+          test_type?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analyses_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analyses_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      datasets: {
+        Row: {
+          column_count: number | null
+          created_at: string
+          file_name: string
+          file_size: number | null
+          file_type: string
+          file_url: string | null
+          id: string
+          parsed_at: string | null
+          project_id: string
+          raw_data: Json | null
+          row_count: number | null
+        }
+        Insert: {
+          column_count?: number | null
+          created_at?: string
+          file_name: string
+          file_size?: number | null
+          file_type: string
+          file_url?: string | null
+          id?: string
+          parsed_at?: string | null
+          project_id: string
+          raw_data?: Json | null
+          row_count?: number | null
+        }
+        Update: {
+          column_count?: number | null
+          created_at?: string
+          file_name?: string
+          file_size?: number | null
+          file_type?: string
+          file_url?: string | null
+          id?: string
+          parsed_at?: string | null
+          project_id?: string
+          raw_data?: Json | null
+          row_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "datasets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -47,6 +175,83 @@ export type Database = {
         }
         Relationships: []
       }
+      projects: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      reports: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          file_url: string | null
+          format: string
+          id: string
+          include_charts: boolean | null
+          include_tables: boolean | null
+          sections_included: Json | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          file_url?: string | null
+          format: string
+          id?: string
+          include_charts?: boolean | null
+          include_tables?: boolean | null
+          sections_included?: Json | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          file_url?: string | null
+          format?: string
+          id?: string
+          include_charts?: boolean | null
+          include_tables?: boolean | null
+          sections_included?: Json | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -68,6 +273,62 @@ export type Database = {
         }
         Relationships: []
       }
+      variables: {
+        Row: {
+          column_index: number
+          created_at: string
+          dataset_id: string
+          decimals: number | null
+          id: string
+          label: string | null
+          measure: string | null
+          missing_values: Json | null
+          name: string
+          type: string
+          updated_at: string
+          value_labels: Json | null
+          width: number | null
+        }
+        Insert: {
+          column_index: number
+          created_at?: string
+          dataset_id: string
+          decimals?: number | null
+          id?: string
+          label?: string | null
+          measure?: string | null
+          missing_values?: Json | null
+          name: string
+          type?: string
+          updated_at?: string
+          value_labels?: Json | null
+          width?: number | null
+        }
+        Update: {
+          column_index?: number
+          created_at?: string
+          dataset_id?: string
+          decimals?: number | null
+          id?: string
+          label?: string | null
+          measure?: string | null
+          missing_values?: Json | null
+          name?: string
+          type?: string
+          updated_at?: string
+          value_labels?: Json | null
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "variables_dataset_id_fkey"
+            columns: ["dataset_id"]
+            isOneToOne: false
+            referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -82,6 +343,12 @@ export type Database = {
       }
     }
     Enums: {
+      analysis_status:
+        | "draft"
+        | "configuring"
+        | "running"
+        | "completed"
+        | "failed"
       app_role: "admin" | "moderator" | "user"
     }
     CompositeTypes: {
@@ -210,6 +477,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      analysis_status: [
+        "draft",
+        "configuring",
+        "running",
+        "completed",
+        "failed",
+      ],
       app_role: ["admin", "moderator", "user"],
     },
   },
