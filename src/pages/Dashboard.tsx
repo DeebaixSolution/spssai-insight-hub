@@ -170,14 +170,10 @@ const DashboardHome = () => {
   );
 };
 
-// Placeholder pages
-const NewAnalysis = () => (
-  <div className="data-card p-8 text-center">
-    <h2 className="text-2xl font-bold mb-2">SPSS Editor</h2>
-    <p className="text-muted-foreground">Analysis wizard coming soon...</p>
-  </div>
-);
+// Import actual pages
+import NewAnalysisPage from './dashboard/NewAnalysis';
 
+// Placeholder pages - to be implemented
 const DataManager = () => (
   <div className="data-card p-8 text-center">
     <h2 className="text-2xl font-bold mb-2">Data Manager</h2>
@@ -327,7 +323,7 @@ const Dashboard = () => {
         <div className="flex-1 p-6 overflow-auto">
           <Routes>
             <Route path="/" element={<DashboardHome />} />
-            <Route path="/new-analysis" element={<NewAnalysis />} />
+            <Route path="/new-analysis" element={<NewAnalysisPage />} />
             <Route path="/data" element={<DataManager />} />
             <Route path="/ai-chat" element={<AIChat />} />
             <Route path="/reports" element={<Reports />} />
