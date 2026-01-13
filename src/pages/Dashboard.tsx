@@ -172,35 +172,10 @@ const DashboardHome = () => {
 
 // Import actual pages
 import NewAnalysisPage from './dashboard/NewAnalysis';
-
-// Placeholder pages - to be implemented
-const DataManager = () => (
-  <div className="data-card p-8 text-center">
-    <h2 className="text-2xl font-bold mb-2">Data Manager</h2>
-    <p className="text-muted-foreground">Dataset management coming soon...</p>
-  </div>
-);
-
-const AIChat = () => (
-  <div className="data-card p-8 text-center">
-    <h2 className="text-2xl font-bold mb-2">AI Assistant</h2>
-    <p className="text-muted-foreground">AI chat coming soon...</p>
-  </div>
-);
-
-const Reports = () => (
-  <div className="data-card p-8 text-center">
-    <h2 className="text-2xl font-bold mb-2">Reports</h2>
-    <p className="text-muted-foreground">Report generation coming soon...</p>
-  </div>
-);
-
-const UserSettings = () => (
-  <div className="data-card p-8 text-center">
-    <h2 className="text-2xl font-bold mb-2">Settings</h2>
-    <p className="text-muted-foreground">User settings coming soon...</p>
-  </div>
-);
+import DataManager from './dashboard/DataManager';
+import AIChat from './dashboard/AIChat';
+import Reports from './dashboard/Reports';
+import Settings from './dashboard/Settings';
 
 // Sidebar Navigation
 const navItems = [
@@ -327,7 +302,7 @@ const Dashboard = () => {
             <Route path="/data" element={<DataManager />} />
             <Route path="/ai-chat" element={<AIChat />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<UserSettings />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </div>
       </main>

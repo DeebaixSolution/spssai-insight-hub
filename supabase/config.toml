@@ -1,1 +1,16 @@
 project_id = "iadhngzglwnfinocixdm"
+
+[functions.run-analysis]
+verify_jwt = false
+
+[functions.interpret-results]
+verify_jwt = false
+
+[functions.detect-variables]
+verify_jwt = false
+
+[functions.suggest-analysis]
+verify_jwt = false
+
+[functions.ai-chat]
+verify_jwt = false
