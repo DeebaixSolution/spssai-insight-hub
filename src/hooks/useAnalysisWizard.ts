@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { Json } from '@/integrations/supabase/types';
 
 export interface ParsedDataset {
   headers: string[];
@@ -155,7 +156,7 @@ export function useAnalysisWizard() {
           file_type: parsedData.fileType,
           row_count: parsedData.rowCount,
           column_count: parsedData.columnCount,
-          raw_data: parsedData.rows as unknown,
+          raw_data: parsedData.rows as Json,
           parsed_at: new Date().toISOString(),
         }])
         .select()
@@ -216,9 +217,9 @@ export function useAnalysisWizard() {
         hypothesis: analysisData.hypothesis || state.hypothesis || null,
         test_category: analysisData.analysisConfig?.testCategory || state.analysisConfig?.testCategory || null,
         test_type: analysisData.analysisConfig?.testType || state.analysisConfig?.testType || null,
-        config: (analysisData.analysisConfig || state.analysisConfig) as unknown,
-        selected_variables: state.variables.map(v => v.name) as unknown,
-        results: (analysisData.results || state.results) as unknown,
+        config: (analysisData.analysisConfig || state.analysisConfig || null) as unknown as Json,
+        selected_variables: state.variables.map(v => v.name) as unknown as Json,
+        results: (analysisData.results || state.results || null) as unknown as Json,
         ai_interpretation: analysisData.aiInterpretation || state.aiInterpretation || null,
         apa_results: analysisData.apaResults || state.apaResults || null,
         discussion: analysisData.discussion || state.discussion || null,
