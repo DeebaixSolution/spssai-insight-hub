@@ -175,7 +175,7 @@ import NewAnalysisPage from './dashboard/NewAnalysis';
 import DataManager from './dashboard/DataManager';
 import AIChat from './dashboard/AIChat';
 import Reports from './dashboard/Reports';
-import Settings from './dashboard/Settings';
+import SettingsPage from './dashboard/Settings';
 
 // Sidebar Navigation
 const navItems = [
@@ -302,7 +302,7 @@ const Dashboard = () => {
             <Route path="/data" element={<DataManager />} />
             <Route path="/ai-chat" element={<AIChat />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>
       </main>
