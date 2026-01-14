@@ -92,6 +92,84 @@ export type Database = {
           },
         ]
       }
+      analysis_categories: {
+        Row: {
+          category_id: string
+          created_at: string | null
+          display_order: number | null
+          icon: string | null
+          id: string
+          is_enabled: boolean | null
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          category_id: string
+          created_at?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          category_id?: string
+          created_at?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      analysis_tests: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          icon: string | null
+          id: string
+          is_enabled: boolean | null
+          is_pro_only: boolean | null
+          name: string
+          required_variables: Json | null
+          test_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          is_pro_only?: boolean | null
+          name: string
+          required_variables?: Json | null
+          test_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          icon?: string | null
+          id?: string
+          is_enabled?: boolean | null
+          is_pro_only?: boolean | null
+          name?: string
+          required_variables?: Json | null
+          test_id?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           content: string
