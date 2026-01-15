@@ -14,9 +14,12 @@ import {
   Activity,
   ChevronLeft,
   Shield,
+  Key,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import AnalysisManager from './admin/AnalysisManager';
+import AuthSettings from './admin/AuthSettings';
+import PaymentManager from './admin/PaymentManager';
 
 // Admin Home Component
 const AdminHome = () => {
@@ -48,6 +51,42 @@ const AdminHome = () => {
           </div>
         </Link>
 
+        <Link to="/admin/auth-settings">
+          <div className="data-card hover:border-primary transition-colors cursor-pointer group h-full">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+                <Key className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground group-hover:text-primary transition-colors">
+                  Auth Settings
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Configure OAuth providers
+                </p>
+              </div>
+            </div>
+          </div>
+        </Link>
+
+        <Link to="/admin/payments">
+          <div className="data-card hover:border-primary transition-colors cursor-pointer group h-full">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
+                <CreditCard className="w-6 h-6 text-purple-600" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground group-hover:text-primary transition-colors">
+                  Payment Manager
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Manage subscriptions & billing
+                </p>
+              </div>
+            </div>
+          </div>
+        </Link>
+
         <div className="data-card opacity-50 cursor-not-allowed">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
@@ -63,10 +102,10 @@ const AdminHome = () => {
         <div className="data-card opacity-50 cursor-not-allowed">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-              <CreditCard className="w-6 h-6 text-muted-foreground" />
+              <ToggleRight className="w-6 h-6 text-muted-foreground" />
             </div>
             <div>
-              <p className="font-medium text-muted-foreground">Plans & Billing</p>
+              <p className="font-medium text-muted-foreground">Feature Toggles</p>
               <p className="text-sm text-muted-foreground">Coming soon</p>
             </div>
           </div>
@@ -116,6 +155,8 @@ const AdminHome = () => {
 const navItems = [
   { path: '/admin', icon: Home, label: 'Dashboard', exact: true },
   { path: '/admin/analysis-manager', icon: FlaskConical, label: 'Analysis Manager' },
+  { path: '/admin/auth-settings', icon: Key, label: 'Auth Settings' },
+  { path: '/admin/payments', icon: CreditCard, label: 'Payments' },
 ];
 
 const Admin = () => {
@@ -235,6 +276,8 @@ const Admin = () => {
           <Routes>
             <Route path="/" element={<AdminHome />} />
             <Route path="/analysis-manager" element={<AnalysisManager />} />
+            <Route path="/auth-settings" element={<AuthSettings />} />
+            <Route path="/payments" element={<PaymentManager />} />
           </Routes>
         </div>
       </main>
