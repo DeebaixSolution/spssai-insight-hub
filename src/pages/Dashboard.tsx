@@ -17,6 +17,7 @@ import {
   FolderOpen,
   TrendingUp,
   Clock,
+  Shield,
 } from 'lucide-react';
 
 // Dashboard Home Component
@@ -187,7 +188,7 @@ const navItems = [
 ];
 
 const Dashboard = () => {
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, isAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -253,6 +254,15 @@ const Dashboard = () => {
 
         {/* User & Settings */}
         <div className="p-4 border-t border-sidebar-border space-y-1">
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-amber-500 hover:bg-amber-500/10"
+            >
+              <Shield className="w-5 h-5" />
+              <span className="font-medium">Admin Panel</span>
+            </Link>
+          )}
           <Link
             to="/dashboard/settings"
             className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
