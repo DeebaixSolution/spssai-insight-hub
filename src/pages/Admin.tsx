@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import AnalysisManager from './admin/AnalysisManager';
 import AuthSettings from './admin/AuthSettings';
 import PaymentManager from './admin/PaymentManager';
+import UserManager from './admin/UserManager';
 
 // Admin Home Component
 const AdminHome = () => {
@@ -87,17 +88,23 @@ const AdminHome = () => {
           </div>
         </Link>
 
-        <div className="data-card opacity-50 cursor-not-allowed">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-              <Users className="w-6 h-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-medium text-muted-foreground">User Management</p>
-              <p className="text-sm text-muted-foreground">Coming soon</p>
+        <Link to="/admin/users">
+          <div className="data-card hover:border-primary transition-colors cursor-pointer group h-full">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                <Users className="w-6 h-6 text-blue-600" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground group-hover:text-primary transition-colors">
+                  User Management
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Manage users & plans
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        </Link>
 
         <div className="data-card opacity-50 cursor-not-allowed">
           <div className="flex items-center gap-3">
@@ -155,6 +162,7 @@ const AdminHome = () => {
 const navItems = [
   { path: '/admin', icon: Home, label: 'Dashboard', exact: true },
   { path: '/admin/analysis-manager', icon: FlaskConical, label: 'Analysis Manager' },
+  { path: '/admin/users', icon: Users, label: 'Users' },
   { path: '/admin/auth-settings', icon: Key, label: 'Auth Settings' },
   { path: '/admin/payments', icon: CreditCard, label: 'Payments' },
 ];
@@ -276,6 +284,7 @@ const Admin = () => {
           <Routes>
             <Route path="/" element={<AdminHome />} />
             <Route path="/analysis-manager" element={<AnalysisManager />} />
+            <Route path="/users" element={<UserManager />} />
             <Route path="/auth-settings" element={<AuthSettings />} />
             <Route path="/payments" element={<PaymentManager />} />
           </Routes>
