@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wand2, Copy, RefreshCw, CheckCircle, Loader2 } from 'lucide-react';
+import { Wand2, Copy, RefreshCw, CheckCircle, Loader2, FileText, BookOpen, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,6 +14,7 @@ interface Step6InterpretationProps {
   analysisConfig: AnalysisConfig | null;
   results: AnalysisResults | null;
   researchQuestion: string;
+  hypothesis?: string;
   aiInterpretation: string;
   onAiInterpretationChange: (interpretation: string) => void;
   apaResults: string;
@@ -22,10 +23,13 @@ interface Step6InterpretationProps {
   onDiscussionChange: (discussion: string) => void;
 }
 
+type InterpretationType = 'summary' | 'apa' | 'discussion' | 'methodology' | 'full-results';
+
 export function Step6Interpretation({
   analysisConfig,
   results,
   researchQuestion,
+  hypothesis,
   aiInterpretation,
   onAiInterpretationChange,
   apaResults,
@@ -36,8 +40,10 @@ export function Step6Interpretation({
   const { isPro } = usePlanLimits();
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState('summary');
+  const [methodology, setMethodology] = useState('');
+  const [fullResults, setFullResults] = useState('');
 
-  const generateInterpretation = async (type: 'summary' | 'apa' | 'discussion') => {
+  const generateInterpretation = async (type: InterpretationType) => {
     if (!results || !analysisConfig) return;
 
     setIsGenerating(true);
@@ -48,21 +54,49 @@ export function Step6Interpretation({
           testType: analysisConfig.testType,
           results: results.tables,
           researchQuestion,
+          hypothesis,
+          variables: {
+            dependent: analysisConfig.dependentVariables,
+            independent: analysisConfig.independentVariables,
+            grouping: analysisConfig.groupingVariable,
+          },
+          sampleSize: results.tables[0]?.rows?.[0]?.N || null,
           isPro,
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle rate limit and payment errors
+        if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
+          toast.error('Rate limit exceeded. Please wait a moment and try again.');
+          return;
+        }
+        if (error.message?.includes('402') || error.message?.includes('Payment')) {
+          toast.error('AI credits exhausted. Please add funds to continue.');
+          return;
+        }
+        throw error;
+      }
 
       if (data?.interpretation) {
-        if (type === 'summary') {
-          onAiInterpretationChange(data.interpretation);
-        } else if (type === 'apa') {
-          onApaResultsChange(data.interpretation);
-        } else {
-          onDiscussionChange(data.interpretation);
+        switch (type) {
+          case 'summary':
+            onAiInterpretationChange(data.interpretation);
+            break;
+          case 'apa':
+            onApaResultsChange(data.interpretation);
+            break;
+          case 'discussion':
+            onDiscussionChange(data.interpretation);
+            break;
+          case 'methodology':
+            setMethodology(data.interpretation);
+            break;
+          case 'full-results':
+            setFullResults(data.interpretation);
+            break;
         }
-        toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} generated!`);
+        toast.success(`${type.charAt(0).toUpperCase() + type.slice(1).replace('-', ' ')} generated!`);
       }
     } catch (err) {
       console.error('Interpretation error:', err);
@@ -75,6 +109,26 @@ export function Step6Interpretation({
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success('Copied to clipboard!');
+  };
+
+  const generateAll = async () => {
+    if (!results || !analysisConfig) return;
+    
+    toast.info('Generating all interpretations... This may take a moment.');
+    
+    // Generate sequentially to avoid rate limits
+    await generateInterpretation('summary');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    if (isPro) {
+      await generateInterpretation('apa');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await generateInterpretation('discussion');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await generateInterpretation('methodology');
+    }
+    
+    toast.success('All interpretations generated!');
   };
 
   if (!results) {
@@ -93,184 +147,129 @@ export function Step6Interpretation({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-foreground mb-2">AI Interpretation</h3>
-        <p className="text-sm text-muted-foreground">
-          Generate AI-powered explanations of your results
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground mb-2">AI Academic Writing</h3>
+          <p className="text-sm text-muted-foreground">
+            Generate publication-ready academic text from your results
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={generateAll}
+          disabled={isGenerating}
+        >
+          {isGenerating ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Wand2 className="w-4 h-4 mr-2" />
+          )}
+          Generate All
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="apa" disabled={!isPro}>
-            APA Results {!isPro && '🔒'}
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="summary" className="text-xs sm:text-sm">
+            <FileText className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+            Summary
           </TabsTrigger>
-          <TabsTrigger value="discussion" disabled={!isPro}>
+          <TabsTrigger value="methodology" disabled={!isPro} className="text-xs sm:text-sm">
+            <FlaskConical className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+            Methods {!isPro && '🔒'}
+          </TabsTrigger>
+          <TabsTrigger value="apa" disabled={!isPro} className="text-xs sm:text-sm">
+            <BookOpen className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+            APA {!isPro && '🔒'}
+          </TabsTrigger>
+          <TabsTrigger value="discussion" disabled={!isPro} className="text-xs sm:text-sm">
             Discussion {!isPro && '🔒'}
+          </TabsTrigger>
+          <TabsTrigger value="full-results" disabled={!isPro} className="text-xs sm:text-sm">
+            Full {!isPro && '🔒'}
           </TabsTrigger>
         </TabsList>
 
         {/* Summary Tab - Available to all */}
         <TabsContent value="summary" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              Plain language explanation of your results
-            </p>
-            <div className="flex gap-2">
-              {aiInterpretation && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => copyToClipboard(aiInterpretation)}
-                >
-                  <Copy className="w-4 h-4 mr-1" />
-                  Copy
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => generateInterpretation('summary')}
-                disabled={isGenerating}
-              >
-                {isGenerating && activeTab === 'summary' ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                ) : aiInterpretation ? (
-                  <RefreshCw className="w-4 h-4 mr-1" />
-                ) : (
-                  <Wand2 className="w-4 h-4 mr-1" />
-                )}
-                {aiInterpretation ? 'Regenerate' : 'Generate'}
-              </Button>
-            </div>
-          </div>
+          <InterpretationPanel
+            title="Plain Language Summary"
+            description="Clear, jargon-free explanation of your results"
+            content={aiInterpretation}
+            onChange={onAiInterpretationChange}
+            onGenerate={() => generateInterpretation('summary')}
+            onCopy={() => copyToClipboard(aiInterpretation)}
+            isGenerating={isGenerating && activeTab === 'summary'}
+            placeholder="Click 'Generate' to create a plain language summary of your statistical results."
+          />
+        </TabsContent>
 
-          {aiInterpretation ? (
-            <div className="bg-muted/50 rounded-lg p-4">
-              <Textarea
-                value={aiInterpretation}
-                onChange={(e) => onAiInterpretationChange(e.target.value)}
-                className="min-h-[200px] bg-transparent border-none resize-none focus-visible:ring-0"
-              />
-            </div>
-          ) : (
-            <div className="bg-muted/30 rounded-lg p-8 text-center border border-dashed">
-              <Wand2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground">
-                Click "Generate" to create an AI interpretation
-              </p>
-            </div>
-          )}
+        {/* Methodology Tab - Pro Only */}
+        <TabsContent value="methodology" className="space-y-4">
+          <PlanGate feature="methodology">
+            <InterpretationPanel
+              title="Methodology Section"
+              description="Complete Methods section for your paper"
+              content={methodology}
+              onChange={setMethodology}
+              onGenerate={() => generateInterpretation('methodology')}
+              onCopy={() => copyToClipboard(methodology)}
+              isGenerating={isGenerating && activeTab === 'methodology'}
+              placeholder="Generate a complete Methods section describing your research design, participants, measures, and statistical analysis."
+              fontClass="font-serif"
+            />
+          </PlanGate>
         </TabsContent>
 
         {/* APA Results Tab - Pro Only */}
         <TabsContent value="apa" className="space-y-4">
           <PlanGate feature="apaResults">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Publication-ready APA-formatted results
-              </p>
-              <div className="flex gap-2">
-                {apaResults && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => copyToClipboard(apaResults)}
-                  >
-                    <Copy className="w-4 h-4 mr-1" />
-                    Copy
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => generateInterpretation('apa')}
-                  disabled={isGenerating}
-                >
-                  {isGenerating && activeTab === 'apa' ? (
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  ) : apaResults ? (
-                    <RefreshCw className="w-4 h-4 mr-1" />
-                  ) : (
-                    <Wand2 className="w-4 h-4 mr-1" />
-                  )}
-                  {apaResults ? 'Regenerate' : 'Generate'}
-                </Button>
-              </div>
-            </div>
-
-            {apaResults ? (
-              <div className="bg-muted/50 rounded-lg p-4">
-                <Textarea
-                  value={apaResults}
-                  onChange={(e) => onApaResultsChange(e.target.value)}
-                  className="min-h-[200px] bg-transparent border-none resize-none focus-visible:ring-0 font-serif"
-                />
-              </div>
-            ) : (
-              <div className="bg-muted/30 rounded-lg p-8 text-center border border-dashed">
-                <Wand2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">
-                  Generate APA-formatted results text
-                </p>
-              </div>
-            )}
+            <InterpretationPanel
+              title="APA Results Section"
+              description="Publication-ready APA 7th edition format"
+              content={apaResults}
+              onChange={onApaResultsChange}
+              onGenerate={() => generateInterpretation('apa')}
+              onCopy={() => copyToClipboard(apaResults)}
+              isGenerating={isGenerating && activeTab === 'apa'}
+              placeholder="Generate an APA-formatted Results section with proper statistical notation, effect sizes, and confidence intervals."
+              fontClass="font-serif"
+            />
           </PlanGate>
         </TabsContent>
 
         {/* Discussion Tab - Pro Only */}
         <TabsContent value="discussion" className="space-y-4">
           <PlanGate feature="discussion">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Academic discussion with implications
-              </p>
-              <div className="flex gap-2">
-                {discussion && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => copyToClipboard(discussion)}
-                  >
-                    <Copy className="w-4 h-4 mr-1" />
-                    Copy
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => generateInterpretation('discussion')}
-                  disabled={isGenerating}
-                >
-                  {isGenerating && activeTab === 'discussion' ? (
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  ) : discussion ? (
-                    <RefreshCw className="w-4 h-4 mr-1" />
-                  ) : (
-                    <Wand2 className="w-4 h-4 mr-1" />
-                  )}
-                  {discussion ? 'Regenerate' : 'Generate'}
-                </Button>
-              </div>
-            </div>
+            <InterpretationPanel
+              title="Discussion Section"
+              description="Interpretation, implications, limitations, and future research"
+              content={discussion}
+              onChange={onDiscussionChange}
+              onGenerate={() => generateInterpretation('discussion')}
+              onCopy={() => copyToClipboard(discussion)}
+              isGenerating={isGenerating && activeTab === 'discussion'}
+              placeholder="Generate a scholarly Discussion section with theoretical implications, practical applications, limitations, and directions for future research."
+              fontClass="font-serif"
+            />
+          </PlanGate>
+        </TabsContent>
 
-            {discussion ? (
-              <div className="bg-muted/50 rounded-lg p-4">
-                <Textarea
-                  value={discussion}
-                  onChange={(e) => onDiscussionChange(e.target.value)}
-                  className="min-h-[250px] bg-transparent border-none resize-none focus-visible:ring-0 font-serif"
-                />
-              </div>
-            ) : (
-              <div className="bg-muted/30 rounded-lg p-8 text-center border border-dashed">
-                <Wand2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">
-                  Generate a discussion section with implications
-                </p>
-              </div>
-            )}
+        {/* Full Results Tab - Pro Only */}
+        <TabsContent value="full-results" className="space-y-4">
+          <PlanGate feature="fullResults">
+            <InterpretationPanel
+              title="Comprehensive Results"
+              description="Detailed analysis with all statistics and interpretations"
+              content={fullResults}
+              onChange={setFullResults}
+              onGenerate={() => generateInterpretation('full-results')}
+              onCopy={() => copyToClipboard(fullResults)}
+              isGenerating={isGenerating && activeTab === 'full-results'}
+              placeholder="Generate a comprehensive Results section including preliminary analyses, assumption checks, main findings, and supplementary analyses."
+              fontClass="font-serif"
+              minHeight="min-h-[350px]"
+            />
           </PlanGate>
         </TabsContent>
       </Tabs>
@@ -280,9 +279,86 @@ export function Step6Interpretation({
         <CheckCircle className="h-4 w-4" />
         <AlertDescription>
           <strong>Tip:</strong> You can edit the AI-generated text to better fit your needs.
-          The interpretation is a starting point, not a final draft.
+          Always review and verify statistical interpretations before publication.
         </AlertDescription>
       </Alert>
     </div>
+  );
+}
+
+interface InterpretationPanelProps {
+  title: string;
+  description: string;
+  content: string;
+  onChange: (value: string) => void;
+  onGenerate: () => void;
+  onCopy: () => void;
+  isGenerating: boolean;
+  placeholder: string;
+  fontClass?: string;
+  minHeight?: string;
+}
+
+function InterpretationPanel({
+  title,
+  description,
+  content,
+  onChange,
+  onGenerate,
+  onCopy,
+  isGenerating,
+  placeholder,
+  fontClass = '',
+  minHeight = 'min-h-[200px]',
+}: InterpretationPanelProps) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="font-medium text-foreground">{title}</h4>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <div className="flex gap-2">
+          {content && (
+            <Button variant="outline" size="sm" onClick={onCopy}>
+              <Copy className="w-4 h-4 mr-1" />
+              Copy
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onGenerate}
+            disabled={isGenerating}
+          >
+            {isGenerating ? (
+              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+            ) : content ? (
+              <RefreshCw className="w-4 h-4 mr-1" />
+            ) : (
+              <Wand2 className="w-4 h-4 mr-1" />
+            )}
+            {content ? 'Regenerate' : 'Generate'}
+          </Button>
+        </div>
+      </div>
+
+      {content ? (
+        <div className="bg-muted/50 rounded-lg p-4">
+          <Textarea
+            value={content}
+            onChange={(e) => onChange(e.target.value)}
+            className={`${minHeight} bg-transparent border-none resize-none focus-visible:ring-0 ${fontClass}`}
+          />
+        </div>
+      ) : (
+        <div className="bg-muted/30 rounded-lg p-8 text-center border border-dashed">
+          <Wand2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground text-sm max-w-md mx-auto">
+            {placeholder}
+          </p>
+        </div>
+      )}
+    </>
   );
 }
