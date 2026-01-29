@@ -11,6 +11,8 @@ interface PlanGateProps {
     | 'fullInterpretation'
     | 'apaResults'
     | 'discussion'
+    | 'methodology'
+    | 'fullResults'
     | 'export'
     | 'advancedTests';
   children: React.ReactNode;
@@ -25,6 +27,8 @@ const featureMap: Record<string, keyof ReturnType<typeof usePlanLimits>['limits'
   fullInterpretation: 'hasFullAIInterpretation',
   apaResults: 'hasAPAResults',
   discussion: 'hasDiscussion',
+  methodology: 'hasMethodology',
+  fullResults: 'hasFullResults',
   export: 'hasExport',
   advancedTests: 'hasAdvancedTests',
 };

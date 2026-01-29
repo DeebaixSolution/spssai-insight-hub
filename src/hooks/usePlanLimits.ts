@@ -11,6 +11,8 @@ export interface PlanLimits {
   hasFullAIInterpretation: boolean;
   hasAPAResults: boolean;
   hasDiscussion: boolean;
+  hasMethodology: boolean;
+  hasFullResults: boolean;
   hasExport: boolean;
   hasAdvancedTests: boolean;
   maxChatMessages: number;
@@ -25,6 +27,8 @@ const FREE_LIMITS: PlanLimits = {
   hasFullAIInterpretation: false,
   hasAPAResults: false,
   hasDiscussion: false,
+  hasMethodology: false,
+  hasFullResults: false,
   hasExport: false,
   hasAdvancedTests: false,
   maxChatMessages: 5,
@@ -39,6 +43,8 @@ const PRO_LIMITS: PlanLimits = {
   hasFullAIInterpretation: true,
   hasAPAResults: true,
   hasDiscussion: true,
+  hasMethodology: true,
+  hasFullResults: true,
   hasExport: true,
   hasAdvancedTests: true,
   maxChatMessages: -1, // Unlimited
