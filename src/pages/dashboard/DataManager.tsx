@@ -56,6 +56,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DataPreviewTable } from '@/components/spss-editor/DataPreviewTable';
 import { useNavigate } from 'react-router-dom';
+import { UploadDatasetDialog } from '@/components/data-manager/UploadDatasetDialog';
 import type { Json } from '@/integrations/supabase/types';
 
 interface Dataset {
@@ -91,6 +92,7 @@ const DataManager = () => {
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [deleteDataset, setDeleteDataset] = useState<Dataset | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
 
   // Fetch datasets with project info
   const { data: datasets = [], isLoading } = useQuery({
@@ -220,7 +222,7 @@ const DataManager = () => {
           <h1 className="text-2xl font-bold text-foreground">{t.dashboard.dataManager}</h1>
           <p className="text-muted-foreground">Manage and organize your datasets</p>
         </div>
-        <Button variant="hero" onClick={() => navigate('/dashboard/new-analysis')}>
+        <Button variant="hero" onClick={() => setIsUploadOpen(true)}>
           <Upload className="w-4 h-4 mr-2" />
           Upload Dataset
         </Button>
@@ -254,7 +256,7 @@ const DataManager = () => {
               : 'Upload your first dataset to get started'}
           </p>
           {!searchQuery && (
-            <Button variant="hero" onClick={() => navigate('/dashboard/new-analysis')}>
+            <Button variant="hero" onClick={() => setIsUploadOpen(true)}>
               <Upload className="w-4 h-4 mr-2" />
               Upload Dataset
             </Button>
@@ -440,6 +442,13 @@ const DataManager = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Upload Dataset Dialog */}
+      <UploadDatasetDialog
+        open={isUploadOpen}
+        onOpenChange={setIsUploadOpen}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['datasets'] })}
+      />
     </div>
   );
 };
