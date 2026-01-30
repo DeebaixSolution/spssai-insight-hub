@@ -106,20 +106,23 @@ export function Step7Export({
 
       if (error) throw error;
 
-      if (data?.fileUrl) {
-        // Download the file
-        window.open(data.fileUrl, '_blank');
-        toast.success('Report generated successfully!');
-      } else if (data?.content) {
-        // For text-based output (fallback)
-        const blob = new Blob([data.content], { type: 'text/plain' });
+      if (data?.content) {
+        // Create blob from HTML content
+        const blob = new Blob([data.content], { type: data.contentType || 'text/html' });
         const url = URL.createObjectURL(blob);
+        
+        // Create download link
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${projectName.replace(/[^a-z0-9]/gi, '_')}_report.txt`;
+        a.download = data.fileName || `${projectName.replace(/[^a-z0-9]/gi, '_')}_report.html`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success('Report downloaded!');
+        
+        toast.success('Report downloaded! Open in Word or browser to view/print as PDF.');
+      } else {
+        throw new Error('No content received');
       }
     } catch (err) {
       console.error('Report generation error:', err);
