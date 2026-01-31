@@ -46,6 +46,8 @@ import {
   MoreHorizontal,
   FileText,
   Table as TableIcon,
+  ClipboardList,
+  ChevronRight,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -82,6 +84,24 @@ interface Variable {
   measure: string | null;
 }
 
+interface Analysis {
+  id: string;
+  project_id: string;
+  dataset_id: string;
+  current_step: number;
+  status: string;
+  test_type: string | null;
+  research_question: string | null;
+  created_at: string;
+  updated_at: string;
+  project?: {
+    name: string;
+  };
+  dataset?: {
+    file_name: string;
+  };
+}
+
 const DataManager = () => {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -108,6 +128,35 @@ const DataManager = () => {
 
       if (error) throw error;
       return data as Dataset[];
+    },
+    enabled: !!user,
+  });
+
+  // Fetch saved analyses (not completed) for "Continue" feature
+  const { data: savedAnalyses = [] } = useQuery({
+    queryKey: ['saved-analyses', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('analyses')
+        .select(`
+          id,
+          project_id,
+          dataset_id,
+          current_step,
+          status,
+          test_type,
+          research_question,
+          created_at,
+          updated_at,
+          project:projects(name),
+          dataset:datasets(file_name)
+        `)
+        .in('status', ['draft', 'configuring'])
+        .order('updated_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+      return data as Analysis[];
     },
     enabled: !!user,
   });
@@ -175,6 +224,23 @@ const DataManager = () => {
     navigate('/dashboard/new-analysis', { state: { datasetId: dataset.id } });
   };
 
+  const handleContinueAnalysis = (analysis: Analysis) => {
+    navigate('/dashboard/new-analysis', { state: { analysisId: analysis.id } });
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'draft':
+        return <Badge variant="outline" className="text-muted-foreground">Draft</Badge>;
+      case 'configuring':
+        return <Badge variant="secondary">In Progress</Badge>;
+      case 'completed':
+        return <Badge className="bg-green-500/10 text-green-600">Completed</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
   const filteredDatasets = datasets.filter(
     (d) =>
       d.file_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -238,6 +304,57 @@ const DataManager = () => {
           className="pl-10"
         />
       </div>
+
+      {/* Saved Analyses Section */}
+      {savedAnalyses.length > 0 && (
+        <div className="data-card">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-semibold text-foreground">Continue Where You Left Off</h2>
+            </div>
+            <span className="text-sm text-muted-foreground">{savedAnalyses.length} saved</span>
+          </div>
+          <div className="space-y-2">
+            {savedAnalyses.map((analysis) => (
+              <div
+                key={analysis.id}
+                className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-foreground truncate">
+                        {analysis.project?.name || 'Untitled Project'}
+                      </span>
+                      {getStatusBadge(analysis.status)}
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
+                      <span className="flex items-center gap-1">
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        {analysis.dataset?.file_name || 'Unknown dataset'}
+                      </span>
+                      <span>Step {analysis.current_step}/7</span>
+                      {analysis.test_type && (
+                        <span className="truncate max-w-[150px]">{analysis.test_type}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleContinueAnalysis(analysis)}
+                  className="text-primary hover:text-primary"
+                >
+                  Continue
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Datasets Table */}
       {isLoading ? (

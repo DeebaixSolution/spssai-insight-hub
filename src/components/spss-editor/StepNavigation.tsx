@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface StepNavigationProps {
@@ -12,6 +12,9 @@ interface StepNavigationProps {
   nextLabel?: string;
   showFinish?: boolean;
   onFinish?: () => void;
+  onSave?: () => void;
+  isSaving?: boolean;
+  canSave?: boolean;
 }
 
 export function StepNavigation({
@@ -25,6 +28,9 @@ export function StepNavigation({
   nextLabel,
   showFinish = false,
   onFinish,
+  onSave,
+  isSaving = false,
+  canSave = true,
 }: StepNavigationProps) {
   const isLastStep = currentStep === totalSteps;
 
@@ -33,18 +39,39 @@ export function StepNavigation({
       <Button
         variant="outline"
         onClick={onPrevious}
-        disabled={currentStep === 1 || !canGoPrevious || isLoading}
+        disabled={currentStep === 1 || !canGoPrevious || isLoading || isSaving}
       >
         <ChevronLeft className="w-4 h-4 mr-2" />
         Previous
       </Button>
 
-      <span className="text-sm text-muted-foreground">
-        Step {currentStep} of {totalSteps}
-      </span>
+      <div className="flex items-center gap-3">
+        {onSave && (
+          <Button
+            variant="outline"
+            onClick={onSave}
+            disabled={!canSave || isSaving || isLoading}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save Progress
+              </>
+            )}
+          </Button>
+        )}
+        <span className="text-sm text-muted-foreground">
+          Step {currentStep} of {totalSteps}
+        </span>
+      </div>
 
       {isLastStep && showFinish ? (
-        <Button variant="hero" onClick={onFinish} disabled={!canGoNext || isLoading}>
+        <Button variant="hero" onClick={onFinish} disabled={!canGoNext || isLoading || isSaving}>
           {isLoading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -55,7 +82,7 @@ export function StepNavigation({
           )}
         </Button>
       ) : (
-        <Button variant="hero" onClick={onNext} disabled={!canGoNext || isLoading}>
+        <Button variant="hero" onClick={onNext} disabled={!canGoNext || isLoading || isSaving}>
           {isLoading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

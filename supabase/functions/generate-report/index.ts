@@ -16,7 +16,7 @@ interface ReportRequest {
     tables: Array<{
       title: string;
       headers: string[];
-      rows: (string | number)[][];
+      rows: Array<Record<string, string | number>>;
     }>;
     charts?: Array<{ type: string; title: string }>;
     summary?: string;
@@ -37,13 +37,13 @@ function formatDate(): string {
   });
 }
 
-function generateTableText(table: { title: string; headers: string[]; rows: (string | number)[][] }): string {
+function generateTableText(table: { title: string; headers: string[]; rows: Array<Record<string, string | number>> }): string {
   let text = `\n### ${table.title}\n\n`;
   
-  // Calculate column widths
-  const widths = table.headers.map((h, i) => {
+  // Calculate column widths - access by header key
+  const widths = table.headers.map((h) => {
     const headerLen = String(h).length;
-    const maxDataLen = Math.max(...table.rows.map(r => String(r[i] ?? '').length));
+    const maxDataLen = Math.max(...table.rows.map(r => String(r[h] ?? '').length));
     return Math.max(headerLen, maxDataLen, 10);
   });
   
@@ -51,9 +51,10 @@ function generateTableText(table: { title: string; headers: string[]; rows: (str
   text += '| ' + table.headers.map((h, i) => String(h).padEnd(widths[i])).join(' | ') + ' |\n';
   text += '| ' + widths.map(w => '-'.repeat(w)).join(' | ') + ' |\n';
   
-  // Data rows
+  // Data rows - iterate by header to access object properties
   for (const row of table.rows) {
-    text += '| ' + row.map((cell, i) => {
+    text += '| ' + table.headers.map((header, i) => {
+      const cell = row[header];
       const val = cell === null || cell === undefined ? '-' : String(cell);
       return val.padEnd(widths[i]);
     }).join(' | ') + ' |\n';
@@ -62,7 +63,7 @@ function generateTableText(table: { title: string; headers: string[]; rows: (str
   return text;
 }
 
-function generateHTMLTable(table: { title: string; headers: string[]; rows: (string | number)[][] }): string {
+function generateHTMLTable(table: { title: string; headers: string[]; rows: Array<Record<string, string | number>> }): string {
   let html = `<h3 style="margin-top: 24px; margin-bottom: 12px; color: #1a1a2e;">${table.title}</h3>`;
   html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11pt;">';
   
@@ -73,11 +74,12 @@ function generateHTMLTable(table: { title: string; headers: string[]; rows: (str
   }
   html += '</tr></thead>';
   
-  // Body
+  // Body - iterate using headers to access object properties correctly
   html += '<tbody>';
   for (const row of table.rows) {
     html += '<tr>';
-    for (const cell of row) {
+    for (const header of table.headers) {
+      const cell = row[header];
       const val = cell === null || cell === undefined ? '-' : String(cell);
       html += `<td style="border: 1px solid #dee2e6; padding: 8px 12px;">${val}</td>`;
     }

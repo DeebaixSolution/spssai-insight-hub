@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { StepProgress } from '@/components/spss-editor/StepProgress';
 import { StepNavigation } from '@/components/spss-editor/StepNavigation';
 import { Step1Upload } from '@/components/spss-editor/Step1Upload';
@@ -27,10 +27,12 @@ const steps = [
 
 export default function NewAnalysis() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { detectVariableTypes } = useDataParser();
   const { canCreateAnalysis, getAnalysesRemaining } = usePlanLimits();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [suggestedTest, setSuggestedTest] = useState<{ category: string; type: string } | undefined>();
+  const [isSaving, setIsSaving] = useState(false);
 
   const {
     state,
@@ -41,6 +43,7 @@ export default function NewAnalysis() {
     createProject,
     saveDataset,
     saveAnalysis,
+    loadAnalysis,
     isCreatingProject,
     isSavingDataset,
     isSavingAnalysis,
@@ -52,6 +55,14 @@ export default function NewAnalysis() {
       setShowUpgrade(true);
     }
   }, [canCreateAnalysis]);
+
+  // Load existing analysis if passed via router state
+  useEffect(() => {
+    const analysisId = (location.state as { analysisId?: string })?.analysisId;
+    if (analysisId) {
+      loadAnalysis(analysisId);
+    }
+  }, [location.state, loadAnalysis]);
 
   const canProceed = () => {
     switch (state.currentStep) {
@@ -118,7 +129,57 @@ export default function NewAnalysis() {
     }
   };
 
+  // Save progress without advancing to next step
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      // If no project yet, create it first
+      if (!state.projectId && state.parsedData && state.projectName.trim()) {
+        const project = await createProject(state.projectName);
+        await saveDataset({ projectId: project.id, parsedData: state.parsedData });
+        
+        // Auto-detect variable types if not already done
+        if (state.variables.length === 0) {
+          const detectedVars = detectVariableTypes(state.parsedData);
+          updateState({ variables: detectedVars });
+        }
+      }
+
+      // Save current analysis state
+      if (state.projectId && state.datasetId) {
+        await saveAnalysis({
+          currentStep: state.currentStep,
+          researchQuestion: state.researchQuestion,
+          hypothesis: state.hypothesis,
+          analysisConfig: state.analysisConfig,
+          results: state.results,
+          aiInterpretation: state.aiInterpretation,
+          apaResults: state.apaResults,
+          discussion: state.discussion,
+        });
+      }
+
+      toast.success('Progress saved!');
+    } catch (err) {
+      console.error('Error saving progress:', err);
+      toast.error('Failed to save progress.');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    state,
+    createProject,
+    saveDataset,
+    saveAnalysis,
+    updateState,
+    detectVariableTypes,
+  ]);
+
   const isLoading = isCreatingProject || isSavingDataset || isSavingAnalysis;
+
+  // Determine if save is possible
+  const canSave = state.currentStep >= 1 && 
+    Boolean(state.projectId || (state.parsedData && state.projectName.trim()));
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -212,6 +273,9 @@ export default function NewAnalysis() {
           isLoading={isLoading}
           showFinish={state.currentStep === 7}
           onFinish={handleFinish}
+          onSave={handleSave}
+          isSaving={isSaving}
+          canSave={canSave}
         />
       </div>
 

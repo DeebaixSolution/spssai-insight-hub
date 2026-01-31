@@ -258,6 +258,89 @@ export function useAnalysisWizard() {
     setError(null);
   }, []);
 
+  // Load an existing analysis by ID
+  const loadAnalysis = useCallback(async (analysisId: string) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Fetch analysis with related data
+      const { data: analysis, error: analysisError } = await supabase
+        .from('analyses')
+        .select(`
+          *,
+          dataset:datasets(*),
+          project:projects(*)
+        `)
+        .eq('id', analysisId)
+        .single();
+
+      if (analysisError) throw analysisError;
+
+      // Fetch variables for the dataset
+      const { data: variables, error: varsError } = await supabase
+        .from('variables')
+        .select('*')
+        .eq('dataset_id', analysis.dataset_id)
+        .order('column_index');
+
+      if (varsError) throw varsError;
+
+      // Parse raw_data from dataset
+      const rawData = analysis.dataset?.raw_data as Record<string, unknown>[] | null;
+      let parsedData: ParsedDataset | null = null;
+
+      if (rawData && Array.isArray(rawData) && rawData.length > 0) {
+        parsedData = {
+          headers: Object.keys(rawData[0]),
+          rows: rawData,
+          fileName: analysis.dataset.file_name,
+          fileType: analysis.dataset.file_type,
+          rowCount: analysis.dataset.row_count || rawData.length,
+          columnCount: analysis.dataset.column_count || Object.keys(rawData[0]).length,
+        };
+      }
+
+      // Map variables to wizard format
+      const wizardVariables: Variable[] = (variables || []).map((v) => ({
+        id: v.id,
+        name: v.name,
+        label: v.label || '',
+        type: v.type as 'nominal' | 'ordinal' | 'scale',
+        measure: (v.measure || v.type) as 'nominal' | 'ordinal' | 'scale',
+        width: v.width || 8,
+        decimals: v.decimals || 2,
+        valueLabels: (v.value_labels as Record<string, string>) || {},
+        missingValues: (v.missing_values as string[]) || [],
+        columnIndex: v.column_index,
+      }));
+
+      // Restore state
+      setState({
+        currentStep: analysis.current_step || 1,
+        projectId: analysis.project_id,
+        projectName: analysis.project?.name || '',
+        datasetId: analysis.dataset_id,
+        parsedData,
+        variables: wizardVariables,
+        researchQuestion: analysis.research_question || '',
+        hypothesis: analysis.hypothesis || '',
+        analysisConfig: analysis.config as unknown as AnalysisConfig | null,
+        results: analysis.results as unknown as AnalysisResults | null,
+        aiInterpretation: analysis.ai_interpretation || '',
+        apaResults: analysis.apa_results || '',
+        discussion: analysis.discussion || '',
+        analysisId: analysis.id,
+      });
+
+    } catch (err) {
+      console.error('Error loading analysis:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load analysis');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     state,
     isLoading,
@@ -270,6 +353,7 @@ export function useAnalysisWizard() {
     saveDataset: saveDatasetMutation.mutateAsync,
     saveVariables: saveVariablesMutation.mutateAsync,
     saveAnalysis: saveAnalysisMutation.mutateAsync,
+    loadAnalysis,
     reset,
     isCreatingProject: createProjectMutation.isPending,
     isSavingDataset: saveDatasetMutation.isPending,
