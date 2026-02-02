@@ -28,6 +28,99 @@ interface ReportRequest {
   sections: string[];
 }
 
+// ============================================================================
+// STRICT VALIDATION - BLOCK REPORTS WITHOUT REAL DATA
+// ============================================================================
+
+interface ValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  extractedMetadata: {
+    sampleSize: number | null;
+    tableCount: number;
+    hasRealStatistics: boolean;
+  };
+}
+
+function validateReportData(data: ReportRequest): ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  let sampleSize: number | null = null;
+  let hasRealStatistics = false;
+  
+  // Check if results exist
+  if (!data.results) {
+    errors.push('CRITICAL: No analysis results provided. Cannot generate report without executed analysis.');
+    return { isValid: false, errors, warnings, extractedMetadata: { sampleSize: null, tableCount: 0, hasRealStatistics: false } };
+  }
+  
+  // Check for tables
+  if (!data.results.tables || data.results.tables.length === 0) {
+    errors.push('CRITICAL: No results tables found. Run analysis in Step 5 first.');
+    return { isValid: false, errors, warnings, extractedMetadata: { sampleSize: null, tableCount: 0, hasRealStatistics: false } };
+  }
+  
+  const tableCount = data.results.tables.length;
+  
+  // Extract sample size and validate statistics exist
+  for (const table of data.results.tables) {
+    if (table.rows && table.rows.length > 0) {
+      for (const row of table.rows) {
+        // Check for sample size
+        if (row.N !== undefined && row.N !== null) {
+          sampleSize = Number(row.N);
+        }
+        if (row.n !== undefined && row.n !== null && sampleSize === null) {
+          sampleSize = Number(row.n);
+        }
+        
+        // Check for real statistics (indicates analysis was actually run)
+        if (row.t !== undefined || row.F !== undefined || row['Chi-Square'] !== undefined ||
+            row.r !== undefined || row.U !== undefined || row.Mean !== undefined ||
+            row.alpha !== undefined || row.p !== undefined) {
+          hasRealStatistics = true;
+        }
+      }
+    }
+  }
+  
+  if (sampleSize === null) {
+    warnings.push('WARNING: Sample size (N) not found in results tables.');
+  }
+  
+  if (!hasRealStatistics) {
+    warnings.push('WARNING: No statistical values found in tables. Ensure analysis was executed.');
+  }
+  
+  // Check AI-generated sections reference real data
+  if (data.aiInterpretation && sampleSize !== null) {
+    // Check if interpretation mentions a wildly different N (possible hallucination)
+    const nMatches = data.aiInterpretation.match(/N\s*=\s*(\d+)/gi);
+    if (nMatches) {
+      for (const match of nMatches) {
+        const mentionedN = parseInt(match.replace(/\D/g, ''));
+        if (Math.abs(mentionedN - sampleSize) > 5) {
+          warnings.push(`WARNING: AI interpretation mentions N=${mentionedN} but actual N=${sampleSize}. Possible hallucination detected.`);
+        }
+      }
+    }
+  }
+  
+  const isValid = errors.length === 0;
+  
+  return {
+    isValid,
+    errors,
+    warnings,
+    extractedMetadata: { sampleSize, tableCount, hasRealStatistics }
+  };
+}
+
+// ============================================================================
+// REPORT GENERATION WITH VALIDATION METADATA
+// ============================================================================
+
 function formatDate(): string {
   const date = new Date();
   return date.toLocaleDateString('en-US', {
@@ -40,18 +133,15 @@ function formatDate(): string {
 function generateTableText(table: { title: string; headers: string[]; rows: Array<Record<string, string | number>> }): string {
   let text = `\n### ${table.title}\n\n`;
   
-  // Calculate column widths - access by header key
   const widths = table.headers.map((h) => {
     const headerLen = String(h).length;
     const maxDataLen = Math.max(...table.rows.map(r => String(r[h] ?? '').length));
     return Math.max(headerLen, maxDataLen, 10);
   });
   
-  // Header row
   text += '| ' + table.headers.map((h, i) => String(h).padEnd(widths[i])).join(' | ') + ' |\n';
   text += '| ' + widths.map(w => '-'.repeat(w)).join(' | ') + ' |\n';
   
-  // Data rows - iterate by header to access object properties
   for (const row of table.rows) {
     text += '| ' + table.headers.map((header, i) => {
       const cell = row[header];
@@ -67,14 +157,12 @@ function generateHTMLTable(table: { title: string; headers: string[]; rows: Arra
   let html = `<h3 style="margin-top: 24px; margin-bottom: 12px; color: #1a1a2e;">${table.title}</h3>`;
   html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11pt;">';
   
-  // Header
   html += '<thead><tr style="background-color: #f8f9fa;">';
   for (const header of table.headers) {
     html += `<th style="border: 1px solid #dee2e6; padding: 8px 12px; text-align: left; font-weight: 600;">${header}</th>`;
   }
   html += '</tr></thead>';
   
-  // Body - iterate using headers to access object properties correctly
   html += '<tbody>';
   for (const row of table.rows) {
     html += '<tr>';
@@ -90,107 +178,7 @@ function generateHTMLTable(table: { title: string; headers: string[]; rows: Arra
   return html;
 }
 
-function generateMarkdownReport(data: ReportRequest): string {
-  const sections = data.sections;
-  let report = '';
-  
-  // Title Page
-  report += `# ${data.projectName || 'Analysis Report'}\n\n`;
-  report += `**Date:** ${formatDate()}\n\n`;
-  
-  if (data.researchQuestion) {
-    report += `**Research Question:** ${data.researchQuestion}\n\n`;
-  }
-  
-  if (data.testType) {
-    report += `**Analysis Type:** ${data.testType}\n\n`;
-  }
-  
-  report += '---\n\n';
-  
-  // Methodology Section
-  if (sections.includes('methodology') && data.methodology) {
-    report += '## Methodology\n\n';
-    report += data.methodology + '\n\n';
-    report += '---\n\n';
-  }
-  
-  // Methods Section
-  if (sections.includes('methods')) {
-    report += '## Methods\n\n';
-    
-    if (data.testType) {
-      report += `**Statistical Test:** ${data.testType}\n\n`;
-    }
-    
-    if (data.testCategory) {
-      report += `**Test Category:** ${data.testCategory}\n\n`;
-    }
-    
-    if (data.variables && data.variables.length > 0) {
-      report += '### Variables Used\n\n';
-      report += '| Variable | Label | Type |\n';
-      report += '| -------- | ----- | ---- |\n';
-      for (const v of data.variables) {
-        report += `| ${v.name} | ${v.label || '-'} | ${v.type} |\n`;
-      }
-      report += '\n';
-    }
-    
-    report += '---\n\n';
-  }
-  
-  // Results Section
-  if (sections.includes('results') && data.results) {
-    report += '## Results\n\n';
-    
-    if (data.results.summary) {
-      report += data.results.summary + '\n\n';
-    }
-    
-    if (data.results.tables && data.results.tables.length > 0) {
-      for (const table of data.results.tables) {
-        report += generateTableText(table);
-        report += '\n';
-      }
-    }
-    
-    if (data.results.charts && data.results.charts.length > 0) {
-      report += `\n*${data.results.charts.length} chart(s) were generated for this analysis.*\n\n`;
-    }
-    
-    report += '---\n\n';
-  }
-  
-  // Interpretation Section
-  if (sections.includes('interpretation') && data.aiInterpretation) {
-    report += '## Summary Interpretation\n\n';
-    report += data.aiInterpretation + '\n\n';
-    report += '---\n\n';
-  }
-  
-  // APA Results Section
-  if (sections.includes('apa') && data.apaResults) {
-    report += '## APA-Style Results\n\n';
-    report += data.apaResults + '\n\n';
-    report += '---\n\n';
-  }
-  
-  // Discussion Section
-  if (sections.includes('discussion') && data.discussion) {
-    report += '## Discussion\n\n';
-    report += data.discussion + '\n\n';
-    report += '---\n\n';
-  }
-  
-  // Footer
-  report += '\n\n---\n\n';
-  report += `*Report generated by SPSS AI Assistant on ${formatDate()}*\n`;
-  
-  return report;
-}
-
-function generateHTMLReport(data: ReportRequest): string {
+function generateHTMLReport(data: ReportRequest, metadata: ValidationResult['extractedMetadata']): string {
   const sections = data.sections;
   
   let html = `<!DOCTYPE html>
@@ -258,6 +246,14 @@ function generateHTMLReport(data: ReportRequest): string {
       font-size: 10pt;
       color: #6b7280;
     }
+    .data-verification {
+      background-color: #f0fdf4;
+      border: 1px solid #86efac;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 16px;
+      font-size: 10pt;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -293,6 +289,14 @@ function generateHTMLReport(data: ReportRequest): string {
   if (data.testType) {
     html += `<p class="meta"><strong>Analysis Type:</strong> ${data.testType}</p>`;
   }
+  html += '</div>';
+
+  // Data Verification Badge
+  html += '<div class="data-verification">';
+  html += `<strong>✓ Data Verification:</strong> This report was generated from validated analysis results. `;
+  html += `Sample Size: N = ${metadata.sampleSize || 'Not specified'} | `;
+  html += `Tables: ${metadata.tableCount} | `;
+  html += `Statistics Present: ${metadata.hasRealStatistics ? 'Yes' : 'No'}`;
   html += '</div>';
 
   // Methodology Section
@@ -380,8 +384,11 @@ function generateHTMLReport(data: ReportRequest): string {
   return html;
 }
 
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -389,7 +396,29 @@ Deno.serve(async (req) => {
   try {
     const data: ReportRequest = await req.json();
     
-    // Validate required fields
+    console.log('Report generation request for:', data.projectName);
+    
+    // STEP 1: Validate that real data exists
+    const validation = validateReportData(data);
+    
+    if (!validation.isValid) {
+      console.error('Report validation failed:', validation.errors);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Cannot generate report: Missing required analysis data',
+          details: validation.errors,
+          suggestion: 'Please run the analysis in Step 5 first, then generate interpretations in Step 6.'
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Log warnings if any
+    if (validation.warnings.length > 0) {
+      console.warn('Report validation warnings:', validation.warnings);
+    }
+    
+    // Validate sections
     if (!data.sections || data.sections.length === 0) {
       return new Response(
         JSON.stringify({ error: 'At least one section must be selected' }),
@@ -397,26 +426,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Generate report based on format
+    // STEP 2: Generate report with validation metadata embedded
     let content: string;
     let contentType: string;
     let fileName: string;
 
-    if (data.format === 'pdf') {
-      // For PDF, we generate HTML that can be printed to PDF
-      content = generateHTMLReport(data);
-      contentType = 'text/html';
-      fileName = `${(data.projectName || 'report').replace(/[^a-z0-9]/gi, '_')}_report.html`;
-    } else {
-      // For DOCX, generate markdown that can be converted or used directly
-      // In a full implementation, you'd use a library like docx
-      // For now, we return HTML that Word can open
-      content = generateHTMLReport(data);
-      contentType = 'text/html';
-      fileName = `${(data.projectName || 'report').replace(/[^a-z0-9]/gi, '_')}_report.html`;
-    }
+    // Generate HTML report (works for both PDF and DOCX - can be opened in Word)
+    content = generateHTMLReport(data, validation.extractedMetadata);
+    contentType = 'text/html';
+    fileName = `${(data.projectName || 'report').replace(/[^a-z0-9]/gi, '_')}_report.html`;
 
     console.log(`Generated ${data.format} report for project: ${data.projectName}`);
+    console.log(`Validation metadata: N=${validation.extractedMetadata.sampleSize}, Tables=${validation.extractedMetadata.tableCount}`);
 
     return new Response(
       JSON.stringify({ 
@@ -424,7 +445,13 @@ Deno.serve(async (req) => {
         contentType,
         fileName,
         format: data.format,
-        success: true
+        success: true,
+        validation: {
+          sampleSize: validation.extractedMetadata.sampleSize,
+          tableCount: validation.extractedMetadata.tableCount,
+          hasRealStatistics: validation.extractedMetadata.hasRealStatistics,
+          warnings: validation.warnings
+        }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

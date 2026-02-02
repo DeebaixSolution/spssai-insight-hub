@@ -7,80 +7,473 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+// ============================================================================
+// STRICT DATA VALIDATION - BLOCK HALLUCINATION AT ARCHITECTURE LEVEL
+// ============================================================================
+
+interface ValidatedResults {
+  isValid: boolean;
+  errors: string[];
+  extractedStats: ExtractedStatistics;
+  rawTables: TableData[];
+}
+
+interface TableData {
+  title: string;
+  headers: string[];
+  rows: Record<string, unknown>[];
+}
+
+interface ExtractedStatistics {
+  sampleSize: number | null;
+  testStatistic: number | null;
+  testStatisticName: string | null;
+  degreesOfFreedom: number | string | null;
+  pValue: number | null;
+  effectSize: number | null;
+  effectSizeName: string | null;
+  means: Record<string, number>;
+  standardDeviations: Record<string, number>;
+  frequencies: Record<string, number>;
+  percentages: Record<string, number>;
+  correlations: Record<string, number>;
+  groupLabels: string[];
+  variableNames: string[];
+  confidenceInterval?: { lower: number; upper: number };
+  additionalStats: Record<string, unknown>;
+}
+
+function validateAndExtractResults(results: unknown, testType: string): ValidatedResults {
+  const errors: string[] = [];
+  const extractedStats: ExtractedStatistics = {
+    sampleSize: null,
+    testStatistic: null,
+    testStatisticName: null,
+    degreesOfFreedom: null,
+    pValue: null,
+    effectSize: null,
+    effectSizeName: null,
+    means: {},
+    standardDeviations: {},
+    frequencies: {},
+    percentages: {},
+    correlations: {},
+    groupLabels: [],
+    variableNames: [],
+    additionalStats: {},
+  };
+  
+  // Check if results exist at all
+  if (!results || typeof results !== 'object') {
+    errors.push('CRITICAL: No analysis results provided. Cannot generate interpretation without executed analysis data.');
+    return { isValid: false, errors, extractedStats, rawTables: [] };
   }
-
-  try {
-    const { type, testType, results, researchQuestion, hypothesis, variables, sampleSize, isPro, supervisorMode, blockContext } = await req.json();
-
-    console.log('Generating interpretation:', type, 'for', testType, 'supervisorMode:', supervisorMode);
-
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+  
+  const resultsObj = results as Record<string, unknown>;
+  
+  // Check for tables array
+  if (!resultsObj.tables || !Array.isArray(resultsObj.tables) || resultsObj.tables.length === 0) {
+    errors.push('CRITICAL: No results tables found. Analysis must be executed in Step 5 before generating interpretation.');
+    return { isValid: false, errors, extractedStats, rawTables: [] };
+  }
+  
+  const tables = resultsObj.tables as TableData[];
+  
+  // Extract statistics from tables based on test type
+  for (const table of tables) {
+    if (!table.rows || table.rows.length === 0) {
+      errors.push(`WARNING: Table "${table.title}" has no data rows.`);
+      continue;
     }
-
-    const writingLogic = getWritingLogic(testType);
-    const systemPrompt = buildSystemPrompt(type, testType, writingLogic, isPro, supervisorMode);
-    const userPrompt = buildUserPrompt(type, testType, results, researchQuestion, hypothesis, variables, sampleSize, writingLogic, blockContext);
-
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_tokens: 3000,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: 'AI credits exhausted. Please add funds to continue.' }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      const errorText = await response.text();
-      console.error('AI Gateway error:', response.status, errorText);
-      throw new Error('AI service temporarily unavailable');
-    }
-
-    const data = await response.json();
     
-    if (data.error) {
-      console.error('AI error:', data.error);
-      throw new Error(data.error.message || 'AI processing failed');
+    for (const row of table.rows) {
+      // Extract sample size (N)
+      if (row.N !== undefined && row.N !== null) {
+        extractedStats.sampleSize = Number(row.N);
+      }
+      if (row.n !== undefined && row.n !== null) {
+        extractedStats.sampleSize = Number(row.n);
+      }
+      if (row['Sample Size'] !== undefined) {
+        extractedStats.sampleSize = Number(row['Sample Size']);
+      }
+      
+      // Extract test statistics
+      if (row.t !== undefined) {
+        extractedStats.testStatistic = Number(row.t);
+        extractedStats.testStatisticName = 't';
+      }
+      if (row.F !== undefined) {
+        extractedStats.testStatistic = Number(row.F);
+        extractedStats.testStatisticName = 'F';
+      }
+      if (row['Chi-Square'] !== undefined || row['χ²'] !== undefined || row.chi_square !== undefined) {
+        extractedStats.testStatistic = Number(row['Chi-Square'] || row['χ²'] || row.chi_square);
+        extractedStats.testStatisticName = 'χ²';
+      }
+      if (row.r !== undefined && testType.includes('pearson')) {
+        extractedStats.testStatistic = Number(row.r);
+        extractedStats.testStatisticName = 'r';
+      }
+      if (row.U !== undefined) {
+        extractedStats.testStatistic = Number(row.U);
+        extractedStats.testStatisticName = 'U';
+      }
+      if (row.H !== undefined) {
+        extractedStats.testStatistic = Number(row.H);
+        extractedStats.testStatisticName = 'H';
+      }
+      if (row['Friedman Chi-Square'] !== undefined) {
+        extractedStats.testStatistic = Number(row['Friedman Chi-Square']);
+        extractedStats.testStatisticName = 'χ²';
+      }
+      
+      // Extract degrees of freedom
+      if (row.df !== undefined) {
+        extractedStats.degreesOfFreedom = String(row.df);
+      }
+      if (row['df1'] !== undefined && row['df2'] !== undefined) {
+        extractedStats.degreesOfFreedom = `${row['df1']}, ${row['df2']}`;
+      }
+      
+      // Extract p-value
+      if (row.p !== undefined && row.p !== null) {
+        extractedStats.pValue = Number(row.p);
+      }
+      if (row['p-value'] !== undefined) {
+        extractedStats.pValue = Number(row['p-value']);
+      }
+      if (row['Sig.'] !== undefined) {
+        extractedStats.pValue = Number(row['Sig.']);
+      }
+      
+      // Extract effect sizes
+      if (row.d !== undefined || row["Cohen's d"] !== undefined) {
+        extractedStats.effectSize = Number(row.d || row["Cohen's d"]);
+        extractedStats.effectSizeName = "Cohen's d";
+      }
+      if (row['η²'] !== undefined || row.eta_squared !== undefined || row['Eta Squared'] !== undefined) {
+        extractedStats.effectSize = Number(row['η²'] || row.eta_squared || row['Eta Squared']);
+        extractedStats.effectSizeName = 'η²';
+      }
+      if (row["Cramér's V"] !== undefined || row.cramers_v !== undefined) {
+        extractedStats.effectSize = Number(row["Cramér's V"] || row.cramers_v);
+        extractedStats.effectSizeName = "Cramér's V";
+      }
+      if (row['R²'] !== undefined || row.r_squared !== undefined) {
+        extractedStats.effectSize = Number(row['R²'] || row.r_squared);
+        extractedStats.effectSizeName = 'R²';
+      }
+      if (row.alpha !== undefined || row["Cronbach's Alpha"] !== undefined) {
+        extractedStats.effectSize = Number(row.alpha || row["Cronbach's Alpha"]);
+        extractedStats.effectSizeName = 'α';
+      }
+      
+      // Extract means and SDs
+      if (row.Mean !== undefined || row.mean !== undefined || row.M !== undefined) {
+        const varName = String(row.Variable || row.Group || row.Category || 'Overall');
+        extractedStats.means[varName] = Number(row.Mean || row.mean || row.M);
+      }
+      if (row.SD !== undefined || row.sd !== undefined || row['Std. Deviation'] !== undefined) {
+        const varName = String(row.Variable || row.Group || row.Category || 'Overall');
+        extractedStats.standardDeviations[varName] = Number(row.SD || row.sd || row['Std. Deviation']);
+      }
+      
+      // Extract frequencies and percentages
+      if (row.Count !== undefined || row.Frequency !== undefined || row.n !== undefined) {
+        const category = String(row.Category || row.Value || row.Group || 'Unknown');
+        extractedStats.frequencies[category] = Number(row.Count || row.Frequency || row.n);
+      }
+      if (row.Percent !== undefined || row.Percentage !== undefined || row['%'] !== undefined) {
+        const category = String(row.Category || row.Value || row.Group || 'Unknown');
+        extractedStats.percentages[category] = Number(row.Percent || row.Percentage || row['%']);
+      }
+      
+      // Extract group labels
+      if (row.Group !== undefined && !extractedStats.groupLabels.includes(String(row.Group))) {
+        extractedStats.groupLabels.push(String(row.Group));
+      }
+      if (row.Category !== undefined && !extractedStats.groupLabels.includes(String(row.Category))) {
+        extractedStats.groupLabels.push(String(row.Category));
+      }
+      
+      // Extract variable names
+      if (row.Variable !== undefined && !extractedStats.variableNames.includes(String(row.Variable))) {
+        extractedStats.variableNames.push(String(row.Variable));
+      }
+      
+      // Extract confidence intervals
+      if (row['CI Lower'] !== undefined && row['CI Upper'] !== undefined) {
+        extractedStats.confidenceInterval = {
+          lower: Number(row['CI Lower']),
+          upper: Number(row['CI Upper']),
+        };
+      }
+      if (row['95% CI'] !== undefined) {
+        const ciMatch = String(row['95% CI']).match(/\[([-\d.]+),\s*([-\d.]+)\]/);
+        if (ciMatch) {
+          extractedStats.confidenceInterval = {
+            lower: Number(ciMatch[1]),
+            upper: Number(ciMatch[2]),
+          };
+        }
+      }
+      
+      // Collect any additional useful stats
+      for (const [key, value] of Object.entries(row)) {
+        if (!['Variable', 'Group', 'Category', 'Value'].includes(key) && 
+            extractedStats.additionalStats[key] === undefined &&
+            value !== null && value !== undefined) {
+          extractedStats.additionalStats[key] = value;
+        }
+      }
     }
-
-    const interpretation = data.choices?.[0]?.message?.content || 'Unable to generate interpretation.';
-
-    return new Response(JSON.stringify({ interpretation }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (error) {
-    console.error('Interpretation error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
   }
-});
+  
+  // Validate required statistics based on test type
+  const requirementsMap: Record<string, string[]> = {
+    'independent-t-test': ['sampleSize', 'testStatistic', 'pValue', 'degreesOfFreedom'],
+    'paired-t-test': ['sampleSize', 'testStatistic', 'pValue', 'degreesOfFreedom'],
+    'one-sample-t-test': ['sampleSize', 'testStatistic', 'pValue', 'degreesOfFreedom'],
+    'one-way-anova': ['sampleSize', 'testStatistic', 'pValue', 'degreesOfFreedom'],
+    'chi-square': ['sampleSize', 'testStatistic', 'pValue', 'degreesOfFreedom'],
+    'pearson': ['sampleSize', 'testStatistic', 'pValue'],
+    'spearman': ['sampleSize', 'testStatistic', 'pValue'],
+    'mann-whitney': ['sampleSize', 'testStatistic', 'pValue'],
+    'wilcoxon': ['sampleSize', 'testStatistic', 'pValue'],
+    'kruskal-wallis': ['sampleSize', 'testStatistic', 'pValue'],
+    'friedman': ['sampleSize', 'testStatistic', 'pValue'],
+    'frequencies': ['sampleSize'],
+    'descriptives': ['sampleSize'],
+    'cronbach-alpha': ['sampleSize'],
+  };
+  
+  const requirements = requirementsMap[testType] || ['sampleSize'];
+  
+  for (const req of requirements) {
+    const value = extractedStats[req as keyof ExtractedStatistics];
+    if (value === null || value === undefined || 
+        (typeof value === 'object' && Object.keys(value).length === 0)) {
+      errors.push(`MISSING REQUIRED STATISTIC: ${req} not found in analysis results.`);
+    }
+  }
+  
+  // Final validation
+  const isValid = errors.filter(e => e.startsWith('CRITICAL') || e.startsWith('MISSING')).length === 0;
+  
+  return { isValid, errors, extractedStats, rawTables: tables };
+}
+
+// ============================================================================
+// STRICT PROMPT BUILDER - USES ONLY VALIDATED DATA
+// ============================================================================
+
+function buildStrictUserPrompt(
+  type: string,
+  testType: string,
+  validatedResults: ValidatedResults,
+  researchQuestion?: string,
+  hypothesis?: string,
+  variables?: { dependent?: string[]; independent?: string[]; grouping?: string },
+  writingLogic?: WritingLogic,
+  blockContext?: { hypothesisId?: string; sectionId?: string; tableNumber?: number; figureNumber?: number; itemRange?: string }
+): string {
+  const stats = validatedResults.extractedStats;
+  
+  let prompt = '=== STRICT DATA BINDING - USE ONLY THE FOLLOWING VERIFIED DATA ===\n\n';
+  
+  prompt += 'CRITICAL INSTRUCTION: You MUST use ONLY the exact values provided below. DO NOT invent, estimate, or hallucinate any statistics.\n\n';
+  
+  // Research context
+  if (researchQuestion) {
+    prompt += `RESEARCH QUESTION: ${researchQuestion}\n\n`;
+  }
+  
+  if (hypothesis) {
+    prompt += `HYPOTHESIS: ${hypothesis}\n\n`;
+  }
+  
+  // Variables - EXACT as provided
+  if (variables) {
+    prompt += 'VARIABLES (use these exact names):\n';
+    if (variables.dependent?.length) {
+      prompt += `• Dependent Variable(s): ${variables.dependent.join(', ')}\n`;
+    }
+    if (variables.independent?.length) {
+      prompt += `• Independent Variable(s): ${variables.independent.join(', ')}\n`;
+    }
+    if (variables.grouping) {
+      prompt += `• Grouping Variable: ${variables.grouping}\n`;
+    }
+    prompt += '\n';
+  }
+  
+  // Block context for table/figure numbering
+  if (blockContext?.tableNumber) {
+    prompt += `TABLE REFERENCE: Table ${blockContext.tableNumber}\n`;
+  }
+  if (blockContext?.figureNumber) {
+    prompt += `FIGURE REFERENCE: Figure ${blockContext.figureNumber}\n`;
+  }
+  if (blockContext?.itemRange) {
+    prompt += `QUESTIONNAIRE ITEMS: ${blockContext.itemRange}\n`;
+  }
+  prompt += '\n';
+  
+  // VERIFIED STATISTICS - The AI MUST use these exact values
+  prompt += '=== VERIFIED STATISTICS (USE EXACTLY AS SHOWN) ===\n\n';
+  
+  if (stats.sampleSize !== null) {
+    prompt += `SAMPLE SIZE: N = ${stats.sampleSize}\n`;
+  }
+  
+  if (stats.testStatistic !== null && stats.testStatisticName) {
+    prompt += `TEST STATISTIC: ${stats.testStatisticName} = ${formatNumber(stats.testStatistic)}\n`;
+  }
+  
+  if (stats.degreesOfFreedom !== null) {
+    prompt += `DEGREES OF FREEDOM: df = ${stats.degreesOfFreedom}\n`;
+  }
+  
+  if (stats.pValue !== null) {
+    const pFormatted = stats.pValue < 0.001 ? '< .001' : `= ${formatNumber(stats.pValue, 3)}`;
+    prompt += `P-VALUE: p ${pFormatted}\n`;
+  }
+  
+  if (stats.effectSize !== null && stats.effectSizeName) {
+    prompt += `EFFECT SIZE: ${stats.effectSizeName} = ${formatNumber(stats.effectSize)}\n`;
+    prompt += `EFFECT INTERPRETATION: ${interpretEffectSize(stats.effectSizeName, stats.effectSize)}\n`;
+  }
+  
+  if (stats.confidenceInterval) {
+    prompt += `95% CI: [${formatNumber(stats.confidenceInterval.lower)}, ${formatNumber(stats.confidenceInterval.upper)}]\n`;
+  }
+  
+  prompt += '\n';
+  
+  // Descriptive statistics
+  if (Object.keys(stats.means).length > 0) {
+    prompt += 'DESCRIPTIVE STATISTICS:\n';
+    for (const [group, mean] of Object.entries(stats.means)) {
+      const sd = stats.standardDeviations[group];
+      if (sd !== undefined) {
+        prompt += `• ${group}: M = ${formatNumber(mean)}, SD = ${formatNumber(sd)}\n`;
+      } else {
+        prompt += `• ${group}: M = ${formatNumber(mean)}\n`;
+      }
+    }
+    prompt += '\n';
+  }
+  
+  // Frequencies
+  if (Object.keys(stats.frequencies).length > 0) {
+    prompt += 'FREQUENCY DATA:\n';
+    for (const [category, count] of Object.entries(stats.frequencies)) {
+      const pct = stats.percentages[category];
+      if (pct !== undefined) {
+        prompt += `• ${category}: n = ${count} (${formatNumber(pct, 1)}%)\n`;
+      } else {
+        prompt += `• ${category}: n = ${count}\n`;
+      }
+    }
+    prompt += '\n';
+  }
+  
+  // Group labels
+  if (stats.groupLabels.length > 0) {
+    prompt += `GROUPS/CATEGORIES: ${stats.groupLabels.join(', ')}\n\n`;
+  }
+  
+  // Raw tables for context
+  prompt += '=== RAW TABLE DATA ===\n';
+  for (const table of validatedResults.rawTables) {
+    prompt += `\n${table.title}:\n`;
+    prompt += JSON.stringify(table.rows, null, 2);
+    prompt += '\n';
+  }
+  
+  prompt += '\n=== WRITING INSTRUCTIONS ===\n\n';
+  
+  if (writingLogic) {
+    prompt += `TEST TYPE: ${writingLogic.name}\n`;
+    prompt += `APA NOTATION: ${writingLogic.apaNotation}\n\n`;
+  }
+  
+  // Type-specific instructions
+  switch (type) {
+    case 'summary':
+      prompt += 'Generate a plain-language summary explaining what these specific results mean. Use the exact statistics provided above.';
+      break;
+    case 'apa':
+      prompt += 'Generate an APA 7th edition Results section using the exact statistics provided above. Include assumption checks, descriptives, main results with the exact test statistic, df, and p-value shown, effect size with interpretation, and hypothesis decision.';
+      break;
+    case 'discussion':
+      prompt += 'Generate a Discussion section interpreting these specific findings. Reference the exact statistics and effect sizes provided above.';
+      break;
+    case 'methodology':
+      prompt += 'Generate a Methods section describing this specific analysis. Reference the exact sample size and variables provided above.';
+      break;
+    case 'full-results':
+      prompt += 'Generate a comprehensive Chapter Four Results section using ONLY the verified data above. Include separate paragraphs for: (1) assumption checks, (2) descriptive statistics, (3) main analysis with exact test statistics, (4) table interpretation, (5) hypothesis decision. Use the exact N, df, test statistic, p-value, and effect size provided.';
+      break;
+  }
+  
+  prompt += '\n\nREMINDER: Use ONLY the data provided above. Do not invent any statistics, sample sizes, or variable names.';
+  
+  return prompt;
+}
+
+function formatNumber(value: number, decimals: number = 3): string {
+  if (Number.isInteger(value)) return value.toString();
+  return value.toFixed(decimals);
+}
+
+function interpretEffectSize(name: string, value: number): string {
+  const absValue = Math.abs(value);
+  
+  switch (name) {
+    case "Cohen's d":
+      if (absValue >= 0.8) return 'large effect';
+      if (absValue >= 0.5) return 'medium effect';
+      if (absValue >= 0.2) return 'small effect';
+      return 'negligible effect';
+    
+    case 'η²':
+    case 'partial η²':
+      if (absValue >= 0.14) return 'large effect';
+      if (absValue >= 0.06) return 'medium effect';
+      if (absValue >= 0.01) return 'small effect';
+      return 'negligible effect';
+    
+    case "Cramér's V":
+      if (absValue >= 0.5) return 'large effect';
+      if (absValue >= 0.3) return 'medium effect';
+      if (absValue >= 0.1) return 'small effect';
+      return 'negligible effect';
+    
+    case 'R²':
+      if (absValue >= 0.26) return 'large effect (substantial variance explained)';
+      if (absValue >= 0.13) return 'medium effect (moderate variance explained)';
+      if (absValue >= 0.02) return 'small effect (minimal variance explained)';
+      return 'negligible effect';
+    
+    case 'r':
+      if (absValue >= 0.5) return 'strong relationship';
+      if (absValue >= 0.3) return 'moderate relationship';
+      if (absValue >= 0.1) return 'weak relationship';
+      return 'negligible relationship';
+    
+    case 'α':
+      if (absValue >= 0.9) return 'excellent internal consistency';
+      if (absValue >= 0.8) return 'good internal consistency';
+      if (absValue >= 0.7) return 'acceptable internal consistency';
+      if (absValue >= 0.6) return 'questionable internal consistency';
+      return 'poor internal consistency';
+    
+    default:
+      return '';
+  }
+}
 
 // ============================================================================
 // PER-TEST WRITING LOGIC LIBRARY
@@ -143,7 +536,7 @@ function getWritingLogic(testType: string): WritingLogic {
       introTemplate: 'Internal consistency reliability was assessed using Cronbach\'s alpha coefficient to evaluate the reliability of the measurement scale.',
       requiredStats: ['alpha', 'n_items', 'scale_mean', 'scale_variance'],
       forbiddenStats: ['mean', 'correlation', 't', 'F'],
-      narrativePattern: 'Cronbach\'s alpha for the [scale_name] scale ([n_items] items, e.g., Items [item_range]) indicated [interpretation] internal consistency (α = [alpha]).',
+      narrativePattern: 'Cronbach\'s alpha for the [scale_name] scale ([n_items] items) indicated [interpretation] internal consistency (α = [alpha]).',
       hypothesisSupported: '',
       hypothesisNotSupported: '',
       assumptionNarrative: 'Reliability analysis assumes that items measure a single latent construct and are measured on interval scales.',
@@ -166,9 +559,9 @@ function getWritingLogic(testType: string): WritingLogic {
       requiredStats: ['t', 'df', 'p', 'mean', 'sd', 'test_value', 'mean_difference', 'cohens_d', 'ci_lower', 'ci_upper'],
       forbiddenStats: ['F', 'r', 'chi_square'],
       narrativePattern: 'The sample mean (M = [mean], SD = [sd]) was significantly [higher/lower] than the test value of [test_value], t([df]) = [t], p [< .001 / = .XXX], with a [small/medium/large] effect size (d = [cohens_d]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating that [variable] significantly differs from the hypothesized value of [test_value].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant difference was found between the sample mean and the hypothesized value of [test_value].',
-      assumptionNarrative: 'Prior to analysis, the assumption of normality was evaluated using the Shapiro-Wilk test. [Results of normality test]. The data [met/did not meet] the assumption of normality.',
+      hypothesisSupported: 'The results support the hypothesis, indicating that [variable] significantly differs from the hypothesized value.',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant difference was found between the sample mean and the hypothesized value.',
+      assumptionNarrative: 'Prior to analysis, the assumption of normality was evaluated using the Shapiro-Wilk test.',
       effectSizeInterpretation: {
         'small': 'd = 0.20 represents a small effect',
         'medium': 'd = 0.50 represents a medium effect',
@@ -185,9 +578,9 @@ function getWritingLogic(testType: string): WritingLogic {
       requiredStats: ['t', 'df', 'p', 'mean1', 'mean2', 'sd1', 'sd2', 'cohens_d', 'ci_lower', 'ci_upper', 'levene_f', 'levene_p'],
       forbiddenStats: ['F', 'r', 'chi_square'],
       narrativePattern: 'The [group1] group (M = [mean1], SD = [sd1]) scored significantly [higher/lower] than the [group2] group (M = [mean2], SD = [sd2]), t([df]) = [t], p [< .001 / = .XXX]. The effect size was [small/medium/large] (d = [cohens_d]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant difference in [dependent_variable] between [group1] and [group2].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant difference in [dependent_variable] was found between [group1] and [group2].',
-      assumptionNarrative: 'Prior to analysis, the assumptions of normality and homogeneity of variances were evaluated. Normality was assessed using the Shapiro-Wilk test [results]. Levene\'s test for equality of variances [was/was not] significant (F = [levene_f], p = [levene_p]), indicating [equal/unequal] variances. [If unequal: Welch\'s t-test was used to correct for this violation.]',
+      hypothesisSupported: 'The results support the hypothesis, indicating a significant difference in [dependent_variable] between [group1] and [group2].',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant difference in [dependent_variable] was found between [group1] and [group2].',
+      assumptionNarrative: 'Prior to analysis, the assumptions of normality and homogeneity of variances were evaluated.',
       effectSizeInterpretation: {
         'small': 'd = 0.20 represents a small effect',
         'medium': 'd = 0.50 represents a medium effect',
@@ -205,9 +598,9 @@ function getWritingLogic(testType: string): WritingLogic {
       requiredStats: ['t', 'df', 'p', 'mean_pre', 'mean_post', 'sd_pre', 'sd_post', 'mean_diff', 'cohens_d', 'ci_lower', 'ci_upper', 'correlation'],
       forbiddenStats: ['F', 'chi_square'],
       narrativePattern: 'There was a significant [increase/decrease] in [variable] from [time1] (M = [mean_pre], SD = [sd_pre]) to [time2] (M = [mean_post], SD = [sd_post]), t([df]) = [t], p [< .001 / = .XXX], with a [small/medium/large] effect size (d = [cohens_d]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant change in [variable] between the two measurement points.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant change in [variable] was found between the measurement points.',
-      assumptionNarrative: 'The assumption of normality for the difference scores was assessed using the Shapiro-Wilk test. [Results]. The paired observations showed a correlation of r = [correlation].',
+      hypothesisSupported: 'The results support the hypothesis, indicating a significant change in [variable] between the two measurement points.',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant change in [variable] was found between the measurement points.',
+      assumptionNarrative: 'The assumption of normality for the difference scores was assessed using the Shapiro-Wilk test.',
       effectSizeInterpretation: {
         'small': 'd = 0.20 represents a small effect',
         'medium': 'd = 0.50 represents a medium effect',
@@ -224,10 +617,10 @@ function getWritingLogic(testType: string): WritingLogic {
       introTemplate: 'A one-way analysis of variance (ANOVA) was conducted to examine differences in [dependent_variable] across the [number] levels of [independent_variable].',
       requiredStats: ['F', 'df_between', 'df_within', 'p', 'eta_squared', 'means', 'sds', 'levene_f', 'levene_p'],
       forbiddenStats: ['t', 'r', 'chi_square'],
-      narrativePattern: 'There was a statistically significant difference in [dependent_variable] across groups, F([df_between], [df_within]) = [F], p [< .001 / = .XXX], η² = [eta_squared]. Post-hoc comparisons using Tukey HSD revealed that [specific_differences].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating significant differences in [dependent_variable] among the groups.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant differences in [dependent_variable] were found among the groups.',
-      assumptionNarrative: 'Prior to analysis, the assumptions of normality and homogeneity of variances were evaluated. Normality was assessed using the Shapiro-Wilk test for each group [results]. Levene\'s test for homogeneity of variances [was/was not] significant (F = [levene_f], p = [levene_p]).',
+      narrativePattern: 'There was a statistically significant difference in [dependent_variable] across groups, F([df_between], [df_within]) = [F], p [< .001 / = .XXX], η² = [eta_squared].',
+      hypothesisSupported: 'The results support the hypothesis, indicating significant differences in [dependent_variable] among the groups.',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant differences in [dependent_variable] were found among the groups.',
+      assumptionNarrative: 'Prior to analysis, the assumptions of normality and homogeneity of variances were evaluated.',
       effectSizeInterpretation: {
         'small': 'η² = .01 represents a small effect',
         'medium': 'η² = .06 represents a medium effect',
@@ -237,43 +630,24 @@ function getWritingLogic(testType: string): WritingLogic {
       figureTitle: 'Figure [N]: Mean [Variable] Scores Across [Groups]'
     },
     
-    'two-way-anova': {
-      name: 'Two-Way ANOVA',
-      category: 'comparison',
-      apaNotation: 'F(df1, df2) = X.XX, p = .XXX, partial η² = .XX',
-      introTemplate: 'A two-way analysis of variance was conducted to examine the main effects of [factor1] and [factor2], as well as their interaction effect, on [dependent_variable].',
-      requiredStats: ['F_factor1', 'F_factor2', 'F_interaction', 'df', 'p_values', 'partial_eta_squared'],
-      forbiddenStats: ['t', 'r', 'chi_square'],
-      narrativePattern: 'There was a significant main effect of [factor1], F([df1], [df2]) = [F], p = [p], partial η² = [effect]. [Describe factor2 and interaction similarly.]',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating [significant main effect/interaction].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant [main effect/interaction] was found.',
-      assumptionNarrative: 'Assumptions of normality and homogeneity of variances were evaluated. Normality was assessed for each cell [results]. Levene\'s test [results].',
+    'chi-square': {
+      name: 'Chi-Square Test of Independence',
+      category: 'nonparametric',
+      apaNotation: 'χ²(df, N = X) = X.XX, p = .XXX, V = .XX',
+      introTemplate: 'A chi-square test of independence was conducted to examine the association between [variable1] and [variable2].',
+      requiredStats: ['chi_square', 'df', 'p', 'n', 'cramers_v', 'observed_frequencies', 'expected_frequencies'],
+      forbiddenStats: ['mean', 'sd', 't', 'F', 'r'],
+      narrativePattern: 'A significant association was found between [variable1] and [variable2], χ²([df], N = [n]) = [chi_square], p [< .001 / = .XXX], V = [cramers_v].',
+      hypothesisSupported: 'The results support the hypothesis, indicating a significant association between [variable1] and [variable2].',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant association was found between [variable1] and [variable2].',
+      assumptionNarrative: 'The chi-square test requires that expected frequencies in each cell are at least 5.',
       effectSizeInterpretation: {
-        'small': 'partial η² = .01 represents a small effect',
-        'medium': 'partial η² = .06 represents a medium effect',
-        'large': 'partial η² = .14 represents a large effect'
+        'small': 'V = .10 represents a small effect',
+        'medium': 'V = .30 represents a medium effect',
+        'large': 'V = .50 represents a large effect'
       },
-      tableTitle: 'Table [N]: Two-Way ANOVA Results for [DV] by [Factor1] and [Factor2]'
-    },
-    
-    'repeated-measures-anova': {
-      name: 'Repeated Measures ANOVA',
-      category: 'comparison',
-      apaNotation: 'F(df1, df2) = X.XX, p = .XXX, partial η² = .XX',
-      introTemplate: 'A repeated measures analysis of variance was conducted to examine changes in [dependent_variable] across [number] time points/conditions.',
-      requiredStats: ['F', 'df', 'p', 'partial_eta_squared', 'mauchly_w', 'mauchly_p', 'greenhouse_geisser', 'means', 'sds'],
-      forbiddenStats: ['t_between', 'chi_square'],
-      narrativePattern: 'There was a significant effect of [within_factor] on [dependent_variable], F([df1], [df2]) = [F], p = [p], partial η² = [effect]. Pairwise comparisons with Bonferroni correction revealed [specific_differences].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating significant changes across measurement points.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant changes were found across measurement points.',
-      assumptionNarrative: 'The assumption of sphericity was evaluated using Mauchly\'s test, W = [mauchly_w], p = [mauchly_p]. [If violated: Sphericity was violated; therefore, the Greenhouse-Geisser correction (ε = [gg_epsilon]) was applied.]',
-      effectSizeInterpretation: {
-        'small': 'partial η² = .01 represents a small effect',
-        'medium': 'partial η² = .06 represents a medium effect',
-        'large': 'partial η² = .14 represents a large effect'
-      },
-      tableTitle: 'Table [N]: Repeated Measures ANOVA Results for [Variable]',
-      figureTitle: 'Figure [N]: Mean [Variable] Across Time Points'
+      tableTitle: 'Table [N]: Chi-Square Test Results for [Variable1] by [Variable2]',
+      figureTitle: 'Figure [N]: Distribution of [Variable1] by [Variable2]'
     },
     
     'pearson': {
@@ -283,108 +657,69 @@ function getWritingLogic(testType: string): WritingLogic {
       introTemplate: 'Pearson product-moment correlation coefficients were computed to assess the linear relationships between the continuous variables.',
       requiredStats: ['r', 'p', 'n', 'r_squared'],
       forbiddenStats: ['t', 'F', 'chi_square', 'mean', 'sd'],
-      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] correlation between [variable1] and [variable2], r([df]) = [r], p [< .001 / = .XXX]. The coefficient of determination (r² = [r_squared]) indicates that [percent]% of the variance in [variable2] is explained by [variable1].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant [positive/negative] relationship between [variable1] and [variable2].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant relationship was found between [variable1] and [variable2].',
-      assumptionNarrative: 'Pearson correlation assumes linearity, bivariate normality, and homoscedasticity. Scatterplot inspection [confirmed/raised concerns about] linearity. [Normality results if available.]',
+      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] correlation between [variable1] and [variable2], r([df]) = [r], p [< .001 / = .XXX].',
+      hypothesisSupported: 'The results support the hypothesis, indicating a significant [positive/negative] relationship between [variable1] and [variable2].',
+      hypothesisNotSupported: 'The results do not support the hypothesis; no significant relationship was found between [variable1] and [variable2].',
+      assumptionNarrative: 'Pearson correlation assumes linearity, bivariate normality, and homoscedasticity.',
       effectSizeInterpretation: {
         'weak': 'r < .30 indicates a weak relationship',
         'moderate': '.30 ≤ r < .50 indicates a moderate relationship',
         'strong': '.50 ≤ r < .70 indicates a strong relationship',
         'very_strong': 'r ≥ .70 indicates a very strong relationship'
       },
-      tableTitle: 'Table [N]: Pearson Correlations Among Study Variables',
+      tableTitle: 'Table [N]: Pearson Correlation Matrix',
       figureTitle: 'Figure [N]: Scatterplot of [Variable1] and [Variable2]'
     },
     
     'spearman': {
-      name: 'Spearman\'s Rank-Order Correlation',
-      category: 'correlation',
+      name: 'Spearman Rank Correlation',
+      category: 'nonparametric',
       apaNotation: 'rs(N) = .XX, p = .XXX',
-      introTemplate: 'Spearman\'s rank-order correlation was used to examine the monotonic relationship between variables, as the data were ordinal or not normally distributed.',
-      requiredStats: ['rho', 'p', 'n'],
-      forbiddenStats: ['t', 'F', 'mean', 'sd'],
-      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] monotonic relationship between [variable1] and [variable2], rs([n]) = [rho], p [< .001 / = .XXX].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant monotonic relationship between [variable1] and [variable2].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant monotonic relationship was found.',
-      assumptionNarrative: 'Spearman\'s correlation was selected as a nonparametric alternative because [the data were ordinal / normality assumptions were violated].',
+      introTemplate: 'Spearman rank-order correlation coefficients were computed to assess the monotonic relationships between the ordinal variables.',
+      requiredStats: ['rs', 'p', 'n'],
+      forbiddenStats: ['t', 'F', 'chi_square', 'mean', 'sd'],
+      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] monotonic relationship between [variable1] and [variable2], rs([n]) = [rs], p [< .001 / = .XXX].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'Spearman correlation does not assume normality and is appropriate for ordinal data.',
       effectSizeInterpretation: {
         'weak': 'rs < .30 indicates a weak relationship',
         'moderate': '.30 ≤ rs < .50 indicates a moderate relationship',
         'strong': 'rs ≥ .50 indicates a strong relationship'
       },
-      tableTitle: 'Table [N]: Spearman Correlations Among Variables'
-    },
-    
-    'kendall-tau': {
-      name: 'Kendall\'s Tau-b Correlation',
-      category: 'correlation',
-      apaNotation: 'τb = .XX, p = .XXX',
-      introTemplate: 'Kendall\'s tau-b coefficient was computed to examine the ordinal association between variables, particularly suitable for data with tied ranks.',
-      requiredStats: ['tau', 'p', 'n'],
-      forbiddenStats: ['t', 'F', 'mean', 'sd'],
-      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] association between [variable1] and [variable2], τb = [tau], p [< .001 / = .XXX].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant ordinal association.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant ordinal association was found.',
-      assumptionNarrative: 'Kendall\'s tau-b was selected as it handles tied ranks more effectively than Spearman\'s correlation.',
-      effectSizeInterpretation: {
-        'weak': 'τb < .20 indicates a weak association',
-        'moderate': '.20 ≤ τb < .40 indicates a moderate association',
-        'strong': 'τb ≥ .40 indicates a strong association'
-      },
-      tableTitle: 'Table [N]: Kendall\'s Tau-b Correlations'
-    },
-    
-    'chi-square': {
-      name: 'Chi-Square Test of Independence',
-      category: 'nonparametric',
-      apaNotation: 'χ²(df) = X.XX, p = .XXX, V = .XX',
-      introTemplate: 'A chi-square test of independence was conducted to examine the association between [variable1] and [variable2].',
-      requiredStats: ['chi_square', 'df', 'p', 'cramers_v', 'n', 'expected_counts', 'observed_counts'],
-      forbiddenStats: ['mean', 'sd', 't', 'F', 'r'],
-      narrativePattern: 'There was a significant association between [variable1] and [variable2], χ²([df]) = [chi_square], p [< .001 / = .XXX]. Cramér\'s V = [cramers_v] indicates a [small/medium/large] effect size.',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant association between [variable1] and [variable2].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant association was found between [variable1] and [variable2].',
-      assumptionNarrative: 'The chi-square test assumes that expected cell frequencies are at least 5. [X] cells ([percent]%) had expected counts less than 5. [If violated: Fisher\'s exact test was considered.]',
-      effectSizeInterpretation: {
-        'small': 'V = .10 represents a small effect',
-        'medium': 'V = .30 represents a medium effect',
-        'large': 'V = .50 represents a large effect'
-      },
-      tableTitle: 'Table [N]: Chi-Square Test of Independence for [Variable1] and [Variable2]',
-      figureTitle: 'Figure [N]: Distribution of [Variable1] by [Variable2]'
+      tableTitle: 'Table [N]: Spearman Correlation Results'
     },
     
     'mann-whitney': {
       name: 'Mann-Whitney U Test',
       category: 'nonparametric',
-      apaNotation: 'U = X, z = X.XX, p = .XXX, r = .XX',
-      introTemplate: 'A Mann-Whitney U test was conducted to compare [dependent_variable] between two groups, as the assumption of normality was violated.',
-      requiredStats: ['U', 'z', 'p', 'r_effect', 'median1', 'median2', 'mean_rank1', 'mean_rank2', 'n1', 'n2'],
-      forbiddenStats: ['mean', 'sd', 't', 'F'],
-      narrativePattern: 'The Mann-Whitney U test indicated that [dependent_variable] was significantly [higher/lower] for [group1] (Mdn = [median1], mean rank = [mean_rank1]) than for [group2] (Mdn = [median2], mean rank = [mean_rank2]), U = [U], z = [z], p [< .001 / = .XXX], with a [small/medium/large] effect size (r = [r_effect]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant difference in [dependent_variable] between the groups.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant difference was found between the groups.',
-      assumptionNarrative: 'The Mann-Whitney U test was selected as the nonparametric alternative to the independent t-test because the assumption of normality was violated (Shapiro-Wilk test [results]).',
+      apaNotation: 'U = X.XX, p = .XXX, r = .XX',
+      introTemplate: 'A Mann-Whitney U test was conducted to compare [dependent_variable] between [group1] and [group2].',
+      requiredStats: ['U', 'p', 'n1', 'n2', 'mean_rank1', 'mean_rank2', 'effect_r'],
+      forbiddenStats: ['t', 'F', 'mean', 'sd'],
+      narrativePattern: 'The [group1] group (Mdn = [median1], mean rank = [mean_rank1]) scored significantly [higher/lower] than the [group2] group (Mdn = [median2], mean rank = [mean_rank2]), U = [U], p [< .001 / = .XXX], r = [effect_r].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'The Mann-Whitney U test is a nonparametric alternative that does not assume normality.',
       effectSizeInterpretation: {
         'small': 'r = .10 represents a small effect',
         'medium': 'r = .30 represents a medium effect',
         'large': 'r = .50 represents a large effect'
       },
-      tableTitle: 'Table [N]: Mann-Whitney U Test Results for [Variable]'
+      tableTitle: 'Table [N]: Mann-Whitney U Test Results'
     },
     
     'wilcoxon': {
       name: 'Wilcoxon Signed-Rank Test',
       category: 'nonparametric',
-      apaNotation: 'W = X, z = X.XX, p = .XXX, r = .XX',
-      introTemplate: 'A Wilcoxon signed-rank test was conducted to compare [variable] between two related conditions, as the assumption of normality for the difference scores was violated.',
-      requiredStats: ['W', 'z', 'p', 'r_effect', 'median1', 'median2', 'positive_ranks', 'negative_ranks', 'ties'],
-      forbiddenStats: ['mean', 'sd', 't'],
-      narrativePattern: 'The Wilcoxon signed-rank test revealed a significant [increase/decrease] from [condition1] (Mdn = [median1]) to [condition2] (Mdn = [median2]), W = [W], z = [z], p [< .001 / = .XXX], with a [small/medium/large] effect size (r = [r_effect]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating a significant change between the conditions.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant change was found between the conditions.',
-      assumptionNarrative: 'The Wilcoxon signed-rank test was used as the nonparametric alternative to the paired t-test because the difference scores were not normally distributed.',
+      apaNotation: 'W = X.XX, p = .XXX, r = .XX',
+      introTemplate: 'A Wilcoxon signed-rank test was conducted to examine changes in [variable] between two related conditions.',
+      requiredStats: ['W', 'Z', 'p', 'n', 'effect_r', 'positive_ranks', 'negative_ranks'],
+      forbiddenStats: ['t', 'F', 'mean', 'sd'],
+      narrativePattern: 'There was a significant [increase/decrease] in [variable], W = [W], Z = [Z], p [< .001 / = .XXX], r = [effect_r].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'The Wilcoxon signed-rank test is a nonparametric alternative to the paired t-test.',
       effectSizeInterpretation: {
         'small': 'r = .10 represents a small effect',
         'medium': 'r = .30 represents a medium effect',
@@ -396,33 +731,33 @@ function getWritingLogic(testType: string): WritingLogic {
     'kruskal-wallis': {
       name: 'Kruskal-Wallis H Test',
       category: 'nonparametric',
-      apaNotation: 'H(df) = X.XX, p = .XXX, ε² = .XX',
-      introTemplate: 'A Kruskal-Wallis H test was conducted to compare [dependent_variable] across [number] groups, as the assumptions for parametric ANOVA were violated.',
-      requiredStats: ['H', 'df', 'p', 'epsilon_squared', 'medians', 'mean_ranks', 'ns'],
-      forbiddenStats: ['mean', 'sd', 'F'],
-      narrativePattern: 'The Kruskal-Wallis H test revealed significant differences in [dependent_variable] across groups, H([df]) = [H], p [< .001 / = .XXX], ε² = [epsilon_squared]. Dunn\'s post-hoc test with Bonferroni correction indicated [specific_differences].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating significant differences across the groups.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant differences were found across the groups.',
-      assumptionNarrative: 'The Kruskal-Wallis test was employed as the nonparametric alternative to one-way ANOVA because [normality/homogeneity] assumptions were violated.',
+      apaNotation: 'H(df) = X.XX, p = .XXX, η² = .XX',
+      introTemplate: 'A Kruskal-Wallis H test was conducted to compare [dependent_variable] across the [number] groups.',
+      requiredStats: ['H', 'df', 'p', 'mean_ranks', 'eta_squared'],
+      forbiddenStats: ['t', 'F', 'mean', 'sd'],
+      narrativePattern: 'A significant difference was found across groups, H([df]) = [H], p [< .001 / = .XXX], η² = [eta_squared].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'The Kruskal-Wallis test is a nonparametric alternative to one-way ANOVA.',
       effectSizeInterpretation: {
-        'small': 'ε² = .01 represents a small effect',
-        'medium': 'ε² = .06 represents a medium effect',
-        'large': 'ε² = .14 represents a large effect'
+        'small': 'η² = .01 represents a small effect',
+        'medium': 'η² = .06 represents a medium effect',
+        'large': 'η² = .14 represents a large effect'
       },
-      tableTitle: 'Table [N]: Kruskal-Wallis H Test Results for [Variable]'
+      tableTitle: 'Table [N]: Kruskal-Wallis H Test Results'
     },
     
     'friedman': {
       name: 'Friedman Test',
       category: 'nonparametric',
       apaNotation: 'χ²(df) = X.XX, p = .XXX, W = .XX',
-      introTemplate: 'A Friedman test was conducted to compare [variable] across [number] related conditions, as the assumption of normality for repeated measures ANOVA was violated.',
-      requiredStats: ['chi_square', 'df', 'p', 'kendalls_w', 'medians', 'mean_ranks'],
-      forbiddenStats: ['F', 'mean', 'sd'],
-      narrativePattern: 'The Friedman test indicated significant differences across conditions, χ²([df]) = [chi_square], p [< .001 / = .XXX], Kendall\'s W = [kendalls_w]. Pairwise Wilcoxon tests with Bonferroni correction revealed [specific_differences].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating significant differences across conditions.',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; no significant differences were found across conditions.',
-      assumptionNarrative: 'The Friedman test was used as the nonparametric alternative to repeated measures ANOVA due to violations of normality assumptions.',
+      introTemplate: 'A Friedman test was conducted to compare [variable] across [number] repeated conditions.',
+      requiredStats: ['chi_square', 'df', 'p', 'mean_ranks', 'kendalls_w'],
+      forbiddenStats: ['t', 'F', 'mean', 'sd'],
+      narrativePattern: 'A significant difference was found across conditions, χ²([df]) = [chi_square], p [< .001 / = .XXX], W = [kendalls_w].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'The Friedman test is a nonparametric alternative to repeated-measures ANOVA.',
       effectSizeInterpretation: {
         'small': 'W = .10 represents a small effect',
         'medium': 'W = .30 represents a medium effect',
@@ -431,104 +766,43 @@ function getWritingLogic(testType: string): WritingLogic {
       tableTitle: 'Table [N]: Friedman Test Results'
     },
     
-    'simple-linear-regression': {
+    'linear-regression': {
       name: 'Simple Linear Regression',
       category: 'regression',
-      apaNotation: 'F(df1, df2) = X.XX, p = .XXX, R² = .XX',
-      introTemplate: 'A simple linear regression was performed to predict [dependent_variable] from [independent_variable].',
-      requiredStats: ['r', 'r_squared', 'adjusted_r_squared', 'F', 'df1', 'df2', 'p_model', 'b0', 'b1', 'se_b', 't', 'p_coef', 'ci_lower', 'ci_upper'],
-      forbiddenStats: ['chi_square', 'mann_whitney'],
-      narrativePattern: 'The regression model was significant, F([df1], [df2]) = [F], p [< .001 / = .XXX], R² = [r_squared]. [Independent_variable] significantly predicted [dependent_variable], β = [b1], t([df]) = [t], p [< .001 / = .XXX], indicating that for each unit increase in [independent_variable], [dependent_variable] [increased/decreased] by [b1] units.',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating that [independent_variable] significantly predicts [dependent_variable].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; [independent_variable] did not significantly predict [dependent_variable].',
-      assumptionNarrative: 'Regression assumptions were evaluated: linearity was confirmed through scatterplot inspection, homoscedasticity was assessed via residual plots, normality of residuals was tested using the Shapiro-Wilk test, and independence of errors was evaluated using the Durbin-Watson statistic.',
+      apaNotation: 'β = X.XX, t = X.XX, p = .XXX, R² = .XX',
+      introTemplate: 'A simple linear regression was conducted to examine whether [predictor] significantly predicted [outcome].',
+      requiredStats: ['R', 'R_squared', 'F', 'df1', 'df2', 'p', 'beta', 'se', 't', 'constant'],
+      forbiddenStats: ['chi_square', 'correlation_matrix'],
+      narrativePattern: 'The regression model was significant, F([df1], [df2]) = [F], p [< .001 / = .XXX], R² = [R_squared]. [Predictor] significantly predicted [outcome], β = [beta], t = [t], p = [p].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'Regression assumptions of linearity, normality, homoscedasticity, and independence were evaluated.',
       effectSizeInterpretation: {
         'small': 'R² = .02 represents a small effect',
         'medium': 'R² = .13 represents a medium effect',
         'large': 'R² = .26 represents a large effect'
       },
-      tableTitle: 'Table [N]: Simple Linear Regression Predicting [DV] from [IV]',
-      figureTitle: 'Figure [N]: Scatterplot with Regression Line for [DV] and [IV]'
+      tableTitle: 'Table [N]: Simple Linear Regression Results',
+      figureTitle: 'Figure [N]: Scatterplot with Regression Line'
     },
     
-    'multiple-regression': {
-      name: 'Multiple Linear Regression',
-      category: 'regression',
-      apaNotation: 'F(df1, df2) = X.XX, p = .XXX, R² = .XX, Adjusted R² = .XX',
-      introTemplate: 'A multiple linear regression was conducted to examine the extent to which [list of IVs] predicted [dependent_variable].',
-      requiredStats: ['r', 'r_squared', 'adjusted_r_squared', 'se_estimate', 'F', 'df1', 'df2', 'p_model', 'coefficients', 'vif', 'tolerance', 'durbin_watson'],
-      forbiddenStats: ['chi_square', 'mann_whitney'],
-      narrativePattern: 'The overall regression model was significant, F([df1], [df2]) = [F], p [< .001 / = .XXX], explaining [percent]% of the variance in [dependent_variable] (R² = [r_squared], Adjusted R² = [adj_r_squared]). Examination of individual predictors revealed that [significant_predictors].',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating that [predictors] significantly predict [dependent_variable].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; the predictors did not significantly predict [dependent_variable].',
-      assumptionNarrative: 'Multiple regression assumptions were evaluated: multicollinearity was assessed using VIF (all values < 10) and tolerance (all values > 0.1). Linearity and homoscedasticity were evaluated through residual plots. Normality of residuals was assessed using the Shapiro-Wilk test. Independence of errors was evaluated using the Durbin-Watson statistic (d = [value]).',
+    'kendall-tau': {
+      name: 'Kendall\'s Tau Correlation',
+      category: 'nonparametric',
+      apaNotation: 'τ = .XX, p = .XXX',
+      introTemplate: 'Kendall\'s tau-b correlation was computed to assess the ordinal association between the variables.',
+      requiredStats: ['tau', 'p', 'n'],
+      forbiddenStats: ['t', 'F', 'mean', 'sd'],
+      narrativePattern: 'There was a [weak/moderate/strong] [positive/negative] association, τ = [tau], p [< .001 / = .XXX].',
+      hypothesisSupported: 'The results support the hypothesis.',
+      hypothesisNotSupported: 'The results do not support the hypothesis.',
+      assumptionNarrative: 'Kendall\'s tau is appropriate for ordinal data with tied ranks.',
       effectSizeInterpretation: {
-        'small': 'R² = .02 represents a small effect',
-        'medium': 'R² = .13 represents a medium effect',
-        'large': 'R² = .26 represents a large effect'
+        'weak': 'τ < .20 indicates a weak association',
+        'moderate': '.20 ≤ τ < .40 indicates a moderate association',
+        'strong': 'τ ≥ .40 indicates a strong association'
       },
-      tableTitle: 'Table [N]: Multiple Regression Model Summary and Coefficients'
-    },
-    
-    'logistic-regression': {
-      name: 'Binary Logistic Regression',
-      category: 'regression',
-      apaNotation: 'χ²(df) = X.XX, p = .XXX, Nagelkerke R² = .XX',
-      introTemplate: 'Binary logistic regression was performed to examine the effects of [predictors] on the likelihood of [outcome].',
-      requiredStats: ['chi_square', 'df', 'p_model', 'neg2ll', 'cox_snell', 'nagelkerke', 'coefficients_b', 'se', 'wald', 'exp_b', 'ci_exp_b', 'classification_accuracy'],
-      forbiddenStats: ['r_pearson', 'F', 'eta_squared'],
-      narrativePattern: 'The logistic regression model was significant, χ²([df]) = [chi_square], p [< .001 / = .XXX], Nagelkerke R² = [nagelkerke], correctly classifying [percent]% of cases. [Predictor] was a significant predictor; for each unit increase in [predictor], the odds of [outcome] [increased/decreased] by a factor of [exp_b] (95% CI [[ci_lower], [ci_upper]]).',
-      hypothesisSupported: 'The results support [hypothesis_id], indicating that [predictors] significantly predict the likelihood of [outcome].',
-      hypothesisNotSupported: 'The results do not support [hypothesis_id]; [predictors] did not significantly predict [outcome].',
-      assumptionNarrative: 'Logistic regression assumptions were evaluated: linearity of the logit was assessed, multicollinearity was checked using VIF, and the Hosmer-Lemeshow test evaluated model fit.',
-      effectSizeInterpretation: {
-        'small': 'Nagelkerke R² < .10 represents a small effect',
-        'medium': 'Nagelkerke R² = .10-.25 represents a medium effect',
-        'large': 'Nagelkerke R² > .25 represents a large effect'
-      },
-      tableTitle: 'Table [N]: Logistic Regression Predicting [Outcome]'
-    },
-    
-    'kmo-bartlett': {
-      name: 'KMO and Bartlett\'s Test',
-      category: 'factor',
-      apaNotation: 'KMO = .XX, χ²(df) = X.XX, p < .001',
-      introTemplate: 'Prior to conducting factor analysis, the factorability of the correlation matrix was assessed using the Kaiser-Meyer-Olkin (KMO) measure of sampling adequacy and Bartlett\'s test of sphericity.',
-      requiredStats: ['kmo', 'chi_square', 'df', 'p'],
-      forbiddenStats: ['mean', 'sd', 't', 'F', 'r'],
-      narrativePattern: 'The KMO value was [kmo], which is [meritorious/middling/mediocre/miserable/marvelous] according to Kaiser\'s classification. Bartlett\'s test of sphericity was significant, χ²([df]) = [chi_square], p < .001, indicating that the correlations between items were sufficient for factor analysis.',
-      hypothesisSupported: '',
-      hypothesisNotSupported: '',
-      assumptionNarrative: 'KMO values above .60 and a significant Bartlett\'s test are required to proceed with factor analysis.',
-      effectSizeInterpretation: {
-        'marvelous': 'KMO ≥ .90 is marvelous',
-        'meritorious': '.80 ≤ KMO < .90 is meritorious',
-        'middling': '.70 ≤ KMO < .80 is middling',
-        'mediocre': '.60 ≤ KMO < .70 is mediocre',
-        'miserable': '.50 ≤ KMO < .60 is miserable',
-        'unacceptable': 'KMO < .50 is unacceptable'
-      },
-      tableTitle: 'Table [N]: KMO and Bartlett\'s Test of Sphericity'
-    },
-    
-    'efa': {
-      name: 'Exploratory Factor Analysis',
-      category: 'factor',
-      apaNotation: 'Factor loadings > .40, eigenvalues > 1.0',
-      introTemplate: 'Exploratory factor analysis with [rotation_type] rotation was conducted to examine the underlying factor structure of the [number]-item scale.',
-      requiredStats: ['kmo', 'bartlett_chi', 'n_factors', 'eigenvalues', 'variance_explained', 'cumulative_variance', 'factor_loadings', 'communalities'],
-      forbiddenStats: ['mean', 'sd', 't', 'F', 'r'],
-      narrativePattern: '[Number] factors were extracted with eigenvalues greater than 1.0, collectively accounting for [percent]% of the total variance. Factor loadings above .40 were used to interpret the factor structure. [Describe each factor and its items.]',
-      hypothesisSupported: '',
-      hypothesisNotSupported: '',
-      assumptionNarrative: 'The KMO measure of sampling adequacy ([kmo]) and Bartlett\'s test of sphericity (p < .001) confirmed the suitability of the data for factor analysis.',
-      effectSizeInterpretation: {
-        'acceptable': 'Factor loadings > .40 are considered acceptable',
-        'good': 'Factor loadings > .60 are considered good',
-        'excellent': 'Factor loadings > .80 are considered excellent'
-      },
-      tableTitle: 'Table [N]: Factor Loadings from Exploratory Factor Analysis',
-      figureTitle: 'Figure [N]: Scree Plot for Factor Extraction'
+      tableTitle: 'Table [N]: Kendall\'s Tau Correlation Results'
     }
   };
   
@@ -554,172 +828,79 @@ function getWritingLogic(testType: string): WritingLogic {
 
 function buildSystemPrompt(type: string, testType: string, writingLogic: WritingLogic, isPro: boolean, supervisorMode: boolean): string {
   const baseGuidelines = `
-CRITICAL WRITING RULES:
-1. Write in formal academic English suitable for a doctoral dissertation
-2. NEVER use AI meta-language like "I analyzed", "The AI found", "Let me explain"
-3. Use passive voice and third person throughout
-4. Be precise with statistical notation - italicize test statistics (t, F, r, p, χ², η²)
-5. Report exact p-values to three decimal places (p = .023), except use p < .001 for very small values
-6. Always include effect sizes with magnitude interpretations
-7. Separate table interpretation and figure interpretation into distinct paragraphs
-8. Reference questionnaire item numbers when applicable (e.g., Items Q12-Q18)
-9. State assumption test results explicitly for all inferential tests
+CRITICAL RULES - STRICT DATA BINDING:
+1. You MUST use ONLY the exact statistics provided in the user message
+2. DO NOT invent, estimate, or hallucinate ANY values
+3. If a statistic is not provided, state "not available" - DO NOT make up a value
+4. Use the EXACT variable names provided - DO NOT rename or alter them
+5. Use the EXACT sample size (N) provided - DO NOT change it
+6. Use the EXACT test statistic, df, and p-value provided - DO NOT modify them
+
+WRITING STANDARDS:
+- Write in formal academic English suitable for a doctoral dissertation
+- NEVER use AI meta-language like "I analyzed", "The AI found", "Let me explain"
+- Use passive voice and third person throughout
+- Be precise with statistical notation - italicize test statistics (t, F, r, p, χ², η²)
+- Report exact p-values to three decimal places (p = .023), except use p < .001 for very small values
 
 TEST-SPECIFIC REQUIREMENTS for ${writingLogic.name}:
 - APA notation: ${writingLogic.apaNotation}
-- Required statistics to report: ${writingLogic.requiredStats.join(', ')}
-- Statistics to AVOID: ${writingLogic.forbiddenStats.join(', ')}
-- Assumption narrative: ${writingLogic.assumptionNarrative}
+- Required statistics: ${writingLogic.requiredStats.join(', ')}
 `;
 
   const supervisorModeAdditions = supervisorMode ? `
-SUPERVISOR MODE ENABLED - Additional requirements:
-- Use conservative, hedged language (e.g., "The findings suggest..." rather than "The results prove...")
-- Include ALL assumption checks with full detail
-- Report 95% confidence intervals for all applicable statistics
-- Avoid any causal claims; use correlational/associational language
-- Note all potential limitations and alternative explanations
-- Provide more extensive methodological justification
+SUPERVISOR MODE - Use conservative language:
+- Use hedged language (e.g., "The findings suggest..." not "The results prove...")
+- Report 95% confidence intervals where provided
+- Note all limitations
 ` : '';
 
   switch (type) {
     case 'summary':
-      return `You are a statistics expert helping non-statisticians understand their ${writingLogic.name} results.
-
-Write a clear, jargon-free summary that explains:
-1. What the analysis tested
-2. What the key findings are (in plain language)
-3. Whether results are statistically significant and what that means practically
-4. The effect size and its practical importance
+      return `You are a statistics expert. Write a plain-language summary using ONLY the provided data.
 
 ${baseGuidelines}
 ${supervisorModeAdditions}
 
-Keep it concise (2-3 paragraphs). Focus on practical implications.`;
+Keep it concise (2-3 paragraphs). Use the exact statistics provided.`;
 
     case 'apa':
-      return `You are an academic writing expert specializing in APA 7th edition format for ${writingLogic.name} results.
+      return `You are an academic writing expert. Write an APA 7th edition Results section using ONLY the provided data.
 
-Write a complete Results section following strict APA guidelines:
-
-FORMAT REQUIREMENTS:
-- Use proper statistical notation: ${writingLogic.apaNotation}
-- Italicize statistical symbols (M, SD, t, F, p, r, η², etc.)
-- Report exact p-values to three decimal places
-- Use "p < .001" for very small p-values
-- Include effect sizes with interpretations
-- Report 95% confidence intervals where applicable
-
-STRUCTURE:
-1. Brief statement of analysis performed
-2. Assumption checks paragraph (MANDATORY for inferential tests)
-3. Descriptive statistics
-4. Main statistical results with ALL relevant statistics
-5. Effect size with interpretation
-6. Hypothesis decision (if applicable)
+FORMAT: ${writingLogic.apaNotation}
 
 ${baseGuidelines}
 ${supervisorModeAdditions}`;
 
     case 'discussion':
-      return `You are a research methodology expert writing a Discussion section for ${writingLogic.name} results.
-
-Write an academic discussion including:
-
-1. INTERPRETATION OF FINDINGS (1 paragraph)
-   - Summarize main findings
-   - Explain meaning in context of research question
-   - Discuss statistical vs. practical significance
-
-2. THEORETICAL IMPLICATIONS (1 paragraph)
-   - How do findings relate to existing theory?
-   - Are they consistent with or contrary to prior research?
-
-3. PRACTICAL IMPLICATIONS (1 paragraph)
-   - Real-world applications
-   - Recommendations for practitioners
-
-4. LIMITATIONS (1 paragraph)
-   - Methodological limitations
-   - Factors affecting generalizability
-
-5. FUTURE RESEARCH (brief)
-   - Questions remaining
-   - Directions for future studies
+      return `You are a research methodology expert. Write a Discussion section using ONLY the provided results.
 
 ${baseGuidelines}
 ${supervisorModeAdditions}`;
 
     case 'methodology':
-      return `You are a research methodology expert writing a Methods section for a study using ${writingLogic.name}.
-
-Write a complete Methodology section including:
-
-1. RESEARCH DESIGN
-   - Type of study design
-   - Variables and their roles (IV, DV, covariates)
-
-2. PARTICIPANTS/SAMPLE
-   - Sample size and characteristics
-   - Sampling method
-
-3. MEASURES/VARIABLES
-   - Description of each variable
-   - Measurement level
-   - Reference questionnaire items where applicable
-
-4. STATISTICAL ANALYSIS
-   - Specific test used and why appropriate
-   - Alpha level
-   - Assumption checks to be performed
-   - Post-hoc tests if applicable
-
-Write in past tense, third person, following APA style.
+      return `You are a research methodology expert. Write a Methods section describing this analysis.
 
 ${baseGuidelines}
 ${supervisorModeAdditions}`;
 
     case 'full-results':
-      return `You are a statistics expert writing a comprehensive Chapter Four Results section for ${writingLogic.name}.
+      return `You are a statistics expert writing a comprehensive Chapter Four Results section.
 
-Provide an extremely detailed analysis including:
-
-1. PRELIMINARY ANALYSES
-   - Data screening and cleaning
-   - Assumption testing with FULL results (mandatory paragraph)
-   - Descriptive statistics for all variables
-
-2. MAIN ANALYSES
-   - Complete statistical results with ALL test statistics
-   - Exact p-values
-   - Effect sizes with interpretations
-   - Confidence intervals
-   - Post-hoc tests if applicable
-
-3. TABLE INTERPRETATION (separate paragraph)
-   - Reference table number: "${writingLogic.tableTitle}"
-   - Explain all columns and key values
-
-4. FIGURE INTERPRETATION (separate paragraph if figure exists)
-   - Reference figure number if applicable
-   - Describe visual patterns
-
-5. HYPOTHESIS DECISION (if linked to hypothesis)
-   - State whether hypothesis is supported or not supported
-   - Use appropriate template language
-
-6. SUPPLEMENTARY ANALYSES
-   - Any additional relevant analyses
-   - Sensitivity checks if applicable
-
-Use APA format throughout. Include all relevant statistics.
-${isPro ? 'Provide maximum detail with advanced statistics.' : ''}
+STRUCTURE REQUIRED:
+1. Preliminary analyses (assumption checks)
+2. Descriptive statistics
+3. Main analysis results with EXACT statistics
+4. Table interpretation
+5. Hypothesis decision (if applicable)
 
 ${baseGuidelines}
-${supervisorModeAdditions}`;
+${supervisorModeAdditions}
+
+Use ONLY the data provided. Include separate paragraphs for table and figure interpretation.`;
 
     default:
-      return `You are a helpful statistics assistant specializing in ${writingLogic.name}. Provide clear, accurate analysis following academic standards.
+      return `You are a helpful statistics assistant. Use ONLY the provided data.
 
 ${baseGuidelines}
 ${supervisorModeAdditions}`;
@@ -727,97 +908,129 @@ ${supervisorModeAdditions}`;
 }
 
 // ============================================================================
-// USER PROMPT BUILDER
+// MAIN REQUEST HANDLER
 // ============================================================================
 
-function buildUserPrompt(
-  type: string,
-  testType: string,
-  results: unknown,
-  researchQuestion?: string,
-  hypothesis?: string,
-  variables?: { dependent?: string[]; independent?: string[]; grouping?: string },
-  sampleSize?: number,
-  writingLogic?: WritingLogic,
-  blockContext?: { hypothesisId?: string; sectionId?: string; tableNumber?: number; figureNumber?: number; itemRange?: string }
-): string {
-  let prompt = '';
-  
-  if (researchQuestion) {
-    prompt += `Research Question: ${researchQuestion}\n\n`;
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
   }
-  
-  if (hypothesis) {
-    prompt += `Hypothesis: ${hypothesis}\n\n`;
-  }
-  
-  if (blockContext?.hypothesisId) {
-    prompt += `Linked Hypothesis ID: ${blockContext.hypothesisId}\n`;
-  }
-  
-  if (blockContext?.tableNumber) {
-    prompt += `Table Number: Table ${blockContext.tableNumber}\n`;
-  }
-  
-  if (blockContext?.figureNumber) {
-    prompt += `Figure Number: Figure ${blockContext.figureNumber}\n`;
-  }
-  
-  if (blockContext?.itemRange) {
-    prompt += `Questionnaire Items: ${blockContext.itemRange}\n`;
-  }
-  
-  prompt += '\n';
-  
-  if (variables) {
-    prompt += 'Variables:\n';
-    if (variables.dependent?.length) {
-      prompt += `- Dependent Variable(s): ${variables.dependent.join(', ')}\n`;
+
+  try {
+    const { type, testType, results, researchQuestion, hypothesis, variables, sampleSize, isPro, supervisorMode, blockContext } = await req.json();
+
+    console.log('Interpretation request:', type, 'for', testType);
+
+    if (!LOVABLE_API_KEY) {
+      throw new Error('LOVABLE_API_KEY is not configured');
     }
-    if (variables.independent?.length) {
-      prompt += `- Independent Variable(s): ${variables.independent.join(', ')}\n`;
+
+    // STEP 1: Validate and extract results - BLOCK IF INVALID
+    const validatedResults = validateAndExtractResults(results, testType);
+    
+    if (!validatedResults.isValid) {
+      console.error('Validation failed:', validatedResults.errors);
+      return new Response(JSON.stringify({ 
+        error: 'Cannot generate interpretation: Missing required analysis data',
+        details: validatedResults.errors,
+        suggestion: 'Please run the analysis in Step 5 first to generate results.'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-    if (variables.grouping) {
-      prompt += `- Grouping Variable: ${variables.grouping}\n`;
+    
+    // Log extracted statistics for debugging
+    console.log('Validated statistics:', JSON.stringify({
+      sampleSize: validatedResults.extractedStats.sampleSize,
+      testStatistic: validatedResults.extractedStats.testStatistic,
+      pValue: validatedResults.extractedStats.pValue,
+      effectSize: validatedResults.extractedStats.effectSize,
+    }));
+
+    const writingLogic = getWritingLogic(testType);
+    const systemPrompt = buildSystemPrompt(type, testType, writingLogic, isPro, supervisorMode);
+    
+    // STEP 2: Build STRICT user prompt with ONLY validated data
+    const userPrompt = buildStrictUserPrompt(
+      type,
+      testType,
+      validatedResults,
+      researchQuestion,
+      hypothesis,
+      variables,
+      writingLogic,
+      blockContext
+    );
+
+    console.log('Sending strict prompt to AI with validated data');
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-3-flash-preview',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 3000,
+        temperature: 0.3, // Lower temperature for more deterministic output
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: 'AI credits exhausted. Please add funds to continue.' }), {
+          status: 402,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const errorText = await response.text();
+      console.error('AI Gateway error:', response.status, errorText);
+      throw new Error('AI service temporarily unavailable');
     }
-    prompt += '\n';
-  }
-  
-  if (sampleSize) {
-    prompt += `Sample Size: N = ${sampleSize}\n\n`;
-  }
-  
-  prompt += `Test Type: ${writingLogic?.name || testType.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}\n\n`;
-  
-  prompt += `Statistical Results:\n${JSON.stringify(results, null, 2)}\n\n`;
-  
-  // Add writing logic guidance
-  if (writingLogic) {
-    prompt += `\nWriting Template Guidance:\n`;
-    prompt += `- Introduction Pattern: ${writingLogic.introTemplate}\n`;
-    prompt += `- Narrative Pattern: ${writingLogic.narrativePattern}\n`;
-    if (hypothesis && writingLogic.hypothesisSupported) {
-      prompt += `- If significant: ${writingLogic.hypothesisSupported}\n`;
-      prompt += `- If not significant: ${writingLogic.hypothesisNotSupported}\n`;
+
+    const data = await response.json();
+    
+    if (data.error) {
+      console.error('AI error:', data.error);
+      throw new Error(data.error.message || 'AI processing failed');
     }
+
+    const interpretation = data.choices?.[0]?.message?.content || 'Unable to generate interpretation.';
+
+    // Include metadata about what data was used
+    return new Response(JSON.stringify({ 
+      interpretation,
+      metadata: {
+        sampleSize: validatedResults.extractedStats.sampleSize,
+        testStatistic: validatedResults.extractedStats.testStatistic,
+        testStatisticName: validatedResults.extractedStats.testStatisticName,
+        pValue: validatedResults.extractedStats.pValue,
+        effectSize: validatedResults.extractedStats.effectSize,
+        effectSizeName: validatedResults.extractedStats.effectSizeName,
+        variablesUsed: validatedResults.extractedStats.variableNames,
+        groupsUsed: validatedResults.extractedStats.groupLabels,
+      }
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Interpretation error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
-  
-  prompt += `\nPlease generate a ${type} interpretation of these results.`;
-  
-  switch (type) {
-    case 'apa':
-      prompt += ' Format the output in proper APA 7th edition style, ready for inclusion in a research paper. Include a separate paragraph for assumption checks.';
-      break;
-    case 'discussion':
-      prompt += ' Write a scholarly discussion section that critically analyzes these findings.';
-      break;
-    case 'methodology':
-      prompt += ' Write a complete Methods section describing how this analysis was conducted.';
-      break;
-    case 'full-results':
-      prompt += ' Provide an extremely comprehensive Chapter Four analysis. Include separate paragraphs for: (1) assumption checks, (2) table interpretation, (3) figure interpretation if applicable, (4) hypothesis decision if applicable.';
-      break;
-  }
-  
-  return prompt;
-}
+});
