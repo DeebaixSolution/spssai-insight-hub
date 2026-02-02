@@ -213,9 +213,11 @@ export default function NewAnalysis() {
           <Step3Research
             researchQuestion={state.researchQuestion}
             onResearchQuestionChange={(q) => updateState({ researchQuestion: q })}
+            variables={state.variables}
+            hypotheses={state.hypotheses}
+            onHypothesesChange={(hypotheses) => updateState({ hypotheses })}
             hypothesis={state.hypothesis}
             onHypothesisChange={(h) => updateState({ hypothesis: h })}
-            variables={state.variables}
             onSuggestedTest={(cat, type) => setSuggestedTest({ category: cat, type })}
           />
         )}

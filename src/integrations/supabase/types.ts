@@ -92,6 +92,77 @@ export type Database = {
           },
         ]
       }
+      analysis_blocks: {
+        Row: {
+          analysis_id: string
+          assumptions: Json | null
+          config: Json
+          created_at: string
+          dependent_variables: string[]
+          display_order: number
+          grouping_variable: string | null
+          id: string
+          independent_variables: string[]
+          linked_hypothesis_id: string | null
+          narrative: Json | null
+          results: Json | null
+          section: string
+          section_id: string
+          status: string
+          test_category: string
+          test_type: string
+          updated_at: string
+        }
+        Insert: {
+          analysis_id: string
+          assumptions?: Json | null
+          config?: Json
+          created_at?: string
+          dependent_variables?: string[]
+          display_order?: number
+          grouping_variable?: string | null
+          id?: string
+          independent_variables?: string[]
+          linked_hypothesis_id?: string | null
+          narrative?: Json | null
+          results?: Json | null
+          section?: string
+          section_id?: string
+          status?: string
+          test_category: string
+          test_type: string
+          updated_at?: string
+        }
+        Update: {
+          analysis_id?: string
+          assumptions?: Json | null
+          config?: Json
+          created_at?: string
+          dependent_variables?: string[]
+          display_order?: number
+          grouping_variable?: string | null
+          id?: string
+          independent_variables?: string[]
+          linked_hypothesis_id?: string | null
+          narrative?: Json | null
+          results?: Json | null
+          section?: string
+          section_id?: string
+          status?: string
+          test_category?: string
+          test_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_blocks_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analysis_categories: {
         Row: {
           category_id: string
@@ -255,6 +326,53 @@ export type Database = {
           },
         ]
       }
+      hypotheses: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          dependent_vars: string[]
+          hypothesis_id: string
+          hypothesis_type: string
+          id: string
+          independent_vars: string[]
+          statement: string
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          dependent_vars?: string[]
+          hypothesis_id: string
+          hypothesis_type?: string
+          id?: string
+          independent_vars?: string[]
+          statement: string
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          dependent_vars?: string[]
+          hypothesis_id?: string
+          hypothesis_type?: string
+          id?: string
+          independent_vars?: string[]
+          statement?: string
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hypotheses_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -397,6 +515,8 @@ export type Database = {
           measure: string | null
           missing_values: Json | null
           name: string
+          role: string | null
+          scale_group: string | null
           type: string
           updated_at: string
           value_labels: Json | null
@@ -412,6 +532,8 @@ export type Database = {
           measure?: string | null
           missing_values?: Json | null
           name: string
+          role?: string | null
+          scale_group?: string | null
           type?: string
           updated_at?: string
           value_labels?: Json | null
@@ -427,6 +549,8 @@ export type Database = {
           measure?: string | null
           missing_values?: Json | null
           name?: string
+          role?: string | null
+          scale_group?: string | null
           type?: string
           updated_at?: string
           value_labels?: Json | null

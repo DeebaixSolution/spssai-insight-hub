@@ -141,6 +141,8 @@ export function useDataParser() {
           label: '',
           type,
           measure: type,
+          dataType: 'numeric' as const,
+          role: null,
           width: 8,
           decimals,
           valueLabels: {},
