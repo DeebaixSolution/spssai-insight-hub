@@ -62,11 +62,7 @@ export function HypothesisCard({
       groupCount = Object.keys(ivVar.valueLabels || {}).length || 2;
     }
 
-    return getRecommendedTests(
-      dvVar.measure,
-      ivVar?.measure,
-      groupCount
-    );
+    return getRecommendedTests(variables, []);
   };
 
   const recommendations = getRecommendations();

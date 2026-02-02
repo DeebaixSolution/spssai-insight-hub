@@ -22,6 +22,7 @@ export interface Variable {
   missingValues: string[];
   columnIndex: number;
   scaleGroup?: string; // For grouping scale items (e.g., Q1_1, Q1_2 -> "Satisfaction Scale")
+  uniqueValues?: number; // Count of unique values (for determining group count)
 }
 
 // Hypothesis types matching research methodology
@@ -137,6 +138,13 @@ export interface AnalysisBlock {
   status: 'pending' | 'running' | 'completed' | 'failed';
 }
 
+// Variable requirement for tests
+export interface VariableRequirement {
+  measures: VariableMeasure[];
+  min: number;
+  max: number;
+}
+
 // Test definition for the analysis library
 export interface TestDefinition {
   id: string;
@@ -144,9 +152,9 @@ export interface TestDefinition {
   description: string;
   category: string;
   requiredVariables: {
-    dependent?: { types: VariableMeasure[]; min: number; max: number };
-    independent?: { types: VariableMeasure[]; min: number; max: number };
-    grouping?: { types: VariableMeasure[]; min?: number; max?: number };
+    dependent?: VariableRequirement;
+    independent?: VariableRequirement;
+    grouping?: VariableRequirement;
   };
   isPro: boolean;
   assumptions: string[]; // List of assumptions to check
@@ -188,7 +196,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Frequencies',
     description: 'Frequency tables and charts for categorical variables',
     category: 'descriptive',
-    requiredVariables: { dependent: { types: ['nominal', 'ordinal'], min: 1, max: 20 } },
+    requiredVariables: { dependent: { measures: ['nominal', 'ordinal'], min: 1, max: 20 } },
     isPro: false,
     assumptions: [],
   },
@@ -197,7 +205,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Descriptives',
     description: 'Mean, SD, min, max for scale variables',
     category: 'descriptive',
-    requiredVariables: { dependent: { types: ['scale'], min: 1, max: 20 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 1, max: 20 } },
     isPro: false,
     assumptions: [],
   },
@@ -207,8 +215,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Cross-tabulation with chi-square test',
     category: 'descriptive',
     requiredVariables: {
-      dependent: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
-      independent: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
+      independent: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: [],
@@ -218,7 +226,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Normality Tests',
     description: 'Shapiro-Wilk and Kolmogorov-Smirnov tests',
     category: 'descriptive',
-    requiredVariables: { dependent: { types: ['scale'], min: 1, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 1, max: 10 } },
     isPro: false,
     assumptions: [],
   },
@@ -227,7 +235,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Outlier Detection',
     description: 'Identify extreme values using IQR and Z-scores',
     category: 'descriptive',
-    requiredVariables: { dependent: { types: ['scale'], min: 1, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 1, max: 10 } },
     isPro: false,
     assumptions: [],
   },
@@ -238,7 +246,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: "Cronbach's Alpha",
     description: 'Internal consistency reliability for scales',
     category: 'reliability',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 2, max: 50 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 2, max: 50 } },
     isPro: false,
     assumptions: [],
     recommendedFor: 'Scale items measuring the same construct',
@@ -248,7 +256,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Item-Total Statistics',
     description: 'Item-total correlations and alpha if deleted',
     category: 'reliability',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 3, max: 50 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 3, max: 50 } },
     isPro: true,
     assumptions: [],
   },
@@ -259,7 +267,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'One-Sample T-Test',
     description: 'Compare sample mean to a known value',
     category: 'compare-means',
-    requiredVariables: { dependent: { types: ['scale'], min: 1, max: 1 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 1, max: 1 } },
     isPro: false,
     assumptions: ['normality'],
     recommendedFor: 'Testing if mean differs from a specific value',
@@ -270,8 +278,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Compare means of two independent groups',
     category: 'compare-means',
     requiredVariables: {
-      dependent: { types: ['scale'], min: 1, max: 1 },
-      grouping: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['scale'], min: 1, max: 1 },
+      grouping: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: ['normality', 'homogeneity'],
@@ -282,7 +290,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Paired Samples T-Test',
     description: 'Compare means of two related measurements',
     category: 'compare-means',
-    requiredVariables: { dependent: { types: ['scale'], min: 2, max: 2 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 2, max: 2 } },
     isPro: false,
     assumptions: ['normality'],
     recommendedFor: 'Pre-post or matched pairs design',
@@ -293,8 +301,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Compare means across 3+ groups',
     category: 'compare-means',
     requiredVariables: {
-      dependent: { types: ['scale'], min: 1, max: 1 },
-      grouping: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['scale'], min: 1, max: 1 },
+      grouping: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: ['normality', 'homogeneity'],
@@ -306,8 +314,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Factorial ANOVA with two factors and interaction',
     category: 'compare-means',
     requiredVariables: {
-      dependent: { types: ['scale'], min: 1, max: 1 },
-      independent: { types: ['nominal', 'ordinal'], min: 2, max: 2 },
+      dependent: { measures: ['scale'], min: 1, max: 1 },
+      independent: { measures: ['nominal', 'ordinal'], min: 2, max: 2 },
     },
     isPro: true,
     assumptions: ['normality', 'homogeneity'],
@@ -317,7 +325,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Repeated Measures ANOVA',
     description: 'Compare means across 3+ time points or conditions',
     category: 'compare-means',
-    requiredVariables: { dependent: { types: ['scale'], min: 3, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 3, max: 10 } },
     isPro: true,
     assumptions: ['normality', 'sphericity'],
   },
@@ -329,8 +337,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Nonparametric alternative to independent t-test',
     category: 'nonparametric',
     requiredVariables: {
-      dependent: { types: ['scale', 'ordinal'], min: 1, max: 1 },
-      grouping: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['scale', 'ordinal'], min: 1, max: 1 },
+      grouping: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: [],
@@ -341,7 +349,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Wilcoxon Signed-Rank Test',
     description: 'Nonparametric alternative to paired t-test',
     category: 'nonparametric',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 2, max: 2 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 2, max: 2 } },
     isPro: false,
     assumptions: [],
   },
@@ -351,8 +359,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Nonparametric alternative to one-way ANOVA',
     category: 'nonparametric',
     requiredVariables: {
-      dependent: { types: ['scale', 'ordinal'], min: 1, max: 1 },
-      grouping: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['scale', 'ordinal'], min: 1, max: 1 },
+      grouping: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: true,
     assumptions: [],
@@ -362,7 +370,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Friedman Test',
     description: 'Nonparametric alternative to repeated measures ANOVA',
     category: 'nonparametric',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 3, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 3, max: 10 } },
     isPro: true,
     assumptions: [],
   },
@@ -372,8 +380,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Test association between categorical variables',
     category: 'nonparametric',
     requiredVariables: {
-      dependent: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
-      independent: { types: ['nominal', 'ordinal'], min: 1, max: 1 },
+      dependent: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
+      independent: { measures: ['nominal', 'ordinal'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: [],
@@ -385,7 +393,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Pearson Correlation',
     description: 'Linear correlation between scale variables',
     category: 'correlation',
-    requiredVariables: { dependent: { types: ['scale'], min: 2, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 2, max: 10 } },
     isPro: false,
     assumptions: ['normality', 'linearity'],
     recommendedFor: 'Two or more scale variables',
@@ -395,7 +403,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Spearman Correlation',
     description: 'Rank correlation for ordinal or non-normal data',
     category: 'correlation',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 2, max: 10 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 2, max: 10 } },
     isPro: false,
     assumptions: [],
     recommendedFor: 'Ordinal data or when normality is violated',
@@ -405,7 +413,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: "Kendall's Tau",
     description: 'Rank correlation for small samples or many ties',
     category: 'correlation',
-    requiredVariables: { dependent: { types: ['scale', 'ordinal'], min: 2, max: 2 } },
+    requiredVariables: { dependent: { measures: ['scale', 'ordinal'], min: 2, max: 2 } },
     isPro: true,
     assumptions: [],
   },
@@ -417,8 +425,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Predict outcome from single predictor',
     category: 'regression',
     requiredVariables: {
-      dependent: { types: ['scale'], min: 1, max: 1 },
-      independent: { types: ['scale'], min: 1, max: 1 },
+      dependent: { measures: ['scale'], min: 1, max: 1 },
+      independent: { measures: ['scale'], min: 1, max: 1 },
     },
     isPro: false,
     assumptions: ['normality', 'linearity', 'homoscedasticity'],
@@ -429,8 +437,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Predict outcome from multiple predictors',
     category: 'regression',
     requiredVariables: {
-      dependent: { types: ['scale'], min: 1, max: 1 },
-      independent: { types: ['scale', 'nominal', 'ordinal'], min: 2, max: 20 },
+      dependent: { measures: ['scale'], min: 1, max: 1 },
+      independent: { measures: ['scale', 'nominal', 'ordinal'], min: 2, max: 20 },
     },
     isPro: true,
     assumptions: ['normality', 'linearity', 'homoscedasticity', 'multicollinearity'],
@@ -441,8 +449,8 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     description: 'Predict binary outcome from predictors',
     category: 'regression',
     requiredVariables: {
-      dependent: { types: ['nominal'], min: 1, max: 1 },
-      independent: { types: ['scale', 'nominal', 'ordinal'], min: 1, max: 20 },
+      dependent: { measures: ['nominal'], min: 1, max: 1 },
+      independent: { measures: ['scale', 'nominal', 'ordinal'], min: 1, max: 20 },
     },
     isPro: true,
     assumptions: [],
@@ -454,7 +462,7 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: "KMO & Bartlett's Test",
     description: 'Test sampling adequacy for factor analysis',
     category: 'factor-analysis',
-    requiredVariables: { dependent: { types: ['scale'], min: 3, max: 50 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 3, max: 50 } },
     isPro: true,
     assumptions: [],
   },
@@ -463,11 +471,14 @@ export const ANALYSIS_TESTS: TestDefinition[] = [
     name: 'Exploratory Factor Analysis',
     description: 'Extract underlying factors from variables',
     category: 'factor-analysis',
-    requiredVariables: { dependent: { types: ['scale'], min: 5, max: 50 } },
+    requiredVariables: { dependent: { measures: ['scale'], min: 5, max: 50 } },
     isPro: true,
     assumptions: [],
   },
 ];
+
+// Alias for backward compatibility
+export const STATISTICAL_TESTS = ANALYSIS_TESTS;
 
 // Get tests by category
 export function getTestsByCategory(categoryId: string): TestDefinition[] {
@@ -481,11 +492,19 @@ export function getTestById(testId: string): TestDefinition | undefined {
 
 // Get recommended tests based on variable configuration
 export function getRecommendedTests(
-  dvMeasure: VariableMeasure,
-  ivMeasure?: VariableMeasure,
-  groupCount?: number
+  variables: Variable[],
+  hypotheses: Hypothesis[]
 ): TestRecommendation[] {
   const recommendations: TestRecommendation[] = [];
+  
+  const dvVars = variables.filter(v => v.role === 'dependent');
+  const ivVars = variables.filter(v => v.role === 'independent');
+  
+  if (dvVars.length === 0) return recommendations;
+  
+  const dvMeasure = dvVars[0]?.measure;
+  const ivMeasure = ivVars[0]?.measure;
+  const groupCount = ivVars[0]?.uniqueValues;
 
   // Scale DV + Nominal IV with 2 groups
   if (dvMeasure === 'scale' && ivMeasure === 'nominal' && groupCount === 2) {
