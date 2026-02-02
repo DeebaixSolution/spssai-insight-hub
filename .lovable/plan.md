@@ -2,13 +2,42 @@
 
 # Complete Rebuild: Advanced Statistical Analysis Wizard (SPSS-Level Professional)
 
-## Executive Summary
+## ✅ COMPLETED (Phase 1)
 
-This plan outlines a complete rebuild of the New Analysis wizard (Steps 1-7) to achieve IBM SPSS-level functionality, academic rigor, and publication-ready output. The rebuild addresses all requirements from your specification, including guided UI intelligence, per-test writing logic, hypothesis enforcement, assumption checking, effect sizes, and proper academic export.
+### 1. Database Schema ✅
+- Created `analysis_blocks` table with RLS policies
+- Created `hypotheses` table with RLS policies  
+- Added `role` and `scale_group` columns to `variables` table
 
----
+### 2. Core Types & Interfaces ✅
+- Created `src/types/analysis.ts` with all TypeScript interfaces
+- Defined Variable, Hypothesis, AnalysisBlock, BlockResults, BlockNarrative
+- Added complete ANALYSIS_TESTS and ANALYSIS_CATEGORIES constants
+- Implemented `getRecommendedTests()` for guided UI intelligence
 
-## Current State Assessment
+### 3. useAnalysisWizard Hook ✅
+- Enhanced with hypothesis management (add/update/remove)
+- Added analysis block management (add/update/remove/reorder)
+- Added variable role/measure helpers
+- Integrated save/load for hypotheses and analysis blocks
+
+### 4. Step 2 - SPSS Variable View ✅
+- Full variable grid with Name, Role, Measure, Width, Decimals, Label, Values
+- Role assignment (ID, Demographic, DV, IV, Scale Item) with color coding
+- Value Labels editor dialog with auto-detected value suggestions
+- Scale Item Grouping dialog for reliability analysis
+- AI Detection button (Pro)
+- Role summary cards and validation warnings
+
+### 5. Step 3 - Hypothesis Builder ✅
+- HypothesisCard component with collapsible UI
+- Hypothesis type selector (Difference, Association, Prediction)
+- DV/IV variable assignment with dropdowns
+- Real-time test recommendations based on variable types
+- AI Suggest Hypotheses button (Pro)
+- Variable summary by role and measure
+
+## 🔄 REMAINING (Phase 2-4)
 
 ### What Currently Exists
 

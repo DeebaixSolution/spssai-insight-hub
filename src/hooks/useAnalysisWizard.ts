@@ -3,6 +3,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Json } from '@/integrations/supabase/types';
+import type {
+  Variable,
+  Hypothesis,
+  AnalysisBlock,
+  BlockResults,
+  BlockNarrative,
+  AssumptionResult,
+} from '@/types/analysis';
+
+// Re-export types for backward compatibility
+export type { Variable, Hypothesis, AnalysisBlock };
 
 export interface ParsedDataset {
   headers: string[];
@@ -13,19 +24,7 @@ export interface ParsedDataset {
   columnCount: number;
 }
 
-export interface Variable {
-  id?: string;
-  name: string;
-  label: string;
-  type: 'nominal' | 'ordinal' | 'scale';
-  measure: 'nominal' | 'ordinal' | 'scale';
-  width: number;
-  decimals: number;
-  valueLabels: Record<string, string>;
-  missingValues: string[];
-  columnIndex: number;
-}
-
+// Legacy AnalysisConfig for backward compatibility
 export interface AnalysisConfig {
   testCategory: string;
   testType: string;
@@ -50,6 +49,7 @@ export interface AnalysisResults {
   summary: string;
 }
 
+// Enhanced wizard state with new architecture
 export interface WizardState {
   currentStep: number;
   projectId: string | null;
@@ -57,15 +57,46 @@ export interface WizardState {
   datasetId: string | null;
   parsedData: ParsedDataset | null;
   variables: Variable[];
+  
+  // Step 3: Research Question & Hypotheses
   researchQuestion: string;
+  hypotheses: Hypothesis[];
+  
+  // Step 4: Analysis Blocks
+  analysisBlocks: AnalysisBlock[];
+  
+  // Legacy fields for backward compatibility
   hypothesis: string;
   analysisConfig: AnalysisConfig | null;
   results: AnalysisResults | null;
+  
+  // Step 6: Interpretations
   aiInterpretation: string;
   apaResults: string;
   discussion: string;
+  methodology: string;
+  fullResults: string;
+  
+  // Settings
+  supervisorMode: boolean;
+  styleProfile: 'apa7' | 'custom';
+  
   analysisId: string | null;
 }
+
+const createDefaultVariable = (name: string, index: number): Variable => ({
+  name,
+  label: '',
+  type: 'scale',
+  measure: 'scale',
+  dataType: 'numeric',
+  role: null,
+  width: 8,
+  decimals: 2,
+  valueLabels: {},
+  missingValues: [],
+  columnIndex: index,
+});
 
 const initialState: WizardState = {
   currentStep: 1,
@@ -75,12 +106,18 @@ const initialState: WizardState = {
   parsedData: null,
   variables: [],
   researchQuestion: '',
+  hypotheses: [],
+  analysisBlocks: [],
   hypothesis: '',
   analysisConfig: null,
   results: null,
   aiInterpretation: '',
   apaResults: '',
   discussion: '',
+  methodology: '',
+  fullResults: '',
+  supervisorMode: false,
+  styleProfile: 'apa7',
   analysisId: null,
 };
 
@@ -114,6 +151,102 @@ export function useAnalysisWizard() {
       currentStep: Math.max(1, prev.currentStep - 1),
     }));
   }, []);
+
+  // ==================== HYPOTHESIS MANAGEMENT ====================
+
+  const addHypothesis = useCallback((hypothesis: Omit<Hypothesis, 'id'>) => {
+    const newHypothesis: Hypothesis = {
+      ...hypothesis,
+      id: crypto.randomUUID(),
+    };
+    setState(prev => ({
+      ...prev,
+      hypotheses: [...prev.hypotheses, newHypothesis],
+    }));
+    return newHypothesis;
+  }, []);
+
+  const updateHypothesis = useCallback((id: string, updates: Partial<Hypothesis>) => {
+    setState(prev => ({
+      ...prev,
+      hypotheses: prev.hypotheses.map(h => 
+        h.id === id ? { ...h, ...updates } : h
+      ),
+    }));
+  }, []);
+
+  const removeHypothesis = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      hypotheses: prev.hypotheses.filter(h => h.id !== id),
+      // Also remove any analysis blocks linked to this hypothesis
+      analysisBlocks: prev.analysisBlocks.filter(b => b.linkedHypothesisId !== id),
+    }));
+  }, []);
+
+  // ==================== ANALYSIS BLOCK MANAGEMENT ====================
+
+  const addAnalysisBlock = useCallback((block: Omit<AnalysisBlock, 'id' | 'displayOrder'>) => {
+    const newBlock: AnalysisBlock = {
+      ...block,
+      id: crypto.randomUUID(),
+      displayOrder: state.analysisBlocks.length,
+    };
+    setState(prev => ({
+      ...prev,
+      analysisBlocks: [...prev.analysisBlocks, newBlock],
+    }));
+    return newBlock;
+  }, [state.analysisBlocks.length]);
+
+  const updateAnalysisBlock = useCallback((id: string, updates: Partial<AnalysisBlock>) => {
+    setState(prev => ({
+      ...prev,
+      analysisBlocks: prev.analysisBlocks.map(b => 
+        b.id === id ? { ...b, ...updates } : b
+      ),
+    }));
+  }, []);
+
+  const removeAnalysisBlock = useCallback((id: string) => {
+    setState(prev => ({
+      ...prev,
+      analysisBlocks: prev.analysisBlocks.filter(b => b.id !== id),
+    }));
+  }, []);
+
+  const reorderAnalysisBlocks = useCallback((startIndex: number, endIndex: number) => {
+    setState(prev => {
+      const blocks = [...prev.analysisBlocks];
+      const [removed] = blocks.splice(startIndex, 1);
+      blocks.splice(endIndex, 0, removed);
+      return {
+        ...prev,
+        analysisBlocks: blocks.map((b, i) => ({ ...b, displayOrder: i })),
+      };
+    });
+  }, []);
+
+  // ==================== VARIABLE MANAGEMENT ====================
+
+  const updateVariable = useCallback((index: number, updates: Partial<Variable>) => {
+    setState(prev => ({
+      ...prev,
+      variables: prev.variables.map((v, i) => 
+        i === index ? { ...v, ...updates } : v
+      ),
+    }));
+  }, []);
+
+  const getVariablesByRole = useCallback((role: Variable['role']) => {
+    return state.variables.filter(v => v.role === role);
+  }, [state.variables]);
+
+  const getVariablesByMeasure = useCallback((measure: Variable['measure']) => {
+    return state.variables.filter(v => v.measure === measure);
+  }, [state.variables]);
+
+  // ==================== DATABASE MUTATIONS ====================
 
   // Create project mutation
   const createProjectMutation = useMutation({
@@ -190,11 +323,95 @@ export function useAnalysisWizard() {
         value_labels: v.valueLabels || null,
         missing_values: v.missingValues || null,
         column_index: v.columnIndex,
+        role: v.role || null,
+        scale_group: v.scaleGroup || null,
       }));
 
       const { data, error } = await supabase
         .from('variables')
         .insert(variableRecords)
+        .select();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Save hypotheses mutation
+  const saveHypothesesMutation = useMutation({
+    mutationFn: async ({
+      analysisId,
+      hypotheses,
+    }: {
+      analysisId: string;
+      hypotheses: Hypothesis[];
+    }) => {
+      // Delete existing hypotheses
+      await supabase
+        .from('hypotheses')
+        .delete()
+        .eq('analysis_id', analysisId);
+
+      if (hypotheses.length === 0) return [];
+
+      const hypothesisRecords = hypotheses.map((h) => ({
+        analysis_id: analysisId,
+        hypothesis_id: h.hypothesisId,
+        hypothesis_type: h.type,
+        statement: h.statement,
+        dependent_vars: h.dependentVariables,
+        independent_vars: h.independentVariables,
+        status: h.status || 'untested',
+      }));
+
+      const { data, error } = await supabase
+        .from('hypotheses')
+        .insert(hypothesisRecords)
+        .select();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Save analysis blocks mutation
+  const saveAnalysisBlocksMutation = useMutation({
+    mutationFn: async ({
+      analysisId,
+      blocks,
+    }: {
+      analysisId: string;
+      blocks: AnalysisBlock[];
+    }) => {
+      // Delete existing blocks
+      await supabase
+        .from('analysis_blocks')
+        .delete()
+        .eq('analysis_id', analysisId);
+
+      if (blocks.length === 0) return [];
+
+      const blockRecords = blocks.map((b) => ({
+        analysis_id: analysisId,
+        section: b.section,
+        section_id: b.sectionId,
+        test_type: b.testType,
+        test_category: b.testCategory,
+        config: b.config as Json,
+        dependent_variables: b.dependentVariables,
+        independent_variables: b.independentVariables,
+        grouping_variable: b.groupingVariable || null,
+        linked_hypothesis_id: b.linkedHypothesisId || null,
+        assumptions: b.assumptions as unknown as Json,
+        results: b.results as unknown as Json,
+        narrative: b.narrative as unknown as Json,
+        display_order: b.displayOrder,
+        status: b.status,
+      }));
+
+      const { data, error } = await supabase
+        .from('analysis_blocks')
+        .insert(blockRecords)
         .select();
 
       if (error) throw error;
@@ -247,8 +464,24 @@ export function useAnalysisWizard() {
         return data;
       }
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       updateState({ analysisId: data.id });
+      
+      // Save hypotheses and analysis blocks
+      if (state.hypotheses.length > 0) {
+        await saveHypothesesMutation.mutateAsync({
+          analysisId: data.id,
+          hypotheses: state.hypotheses,
+        });
+      }
+      
+      if (state.analysisBlocks.length > 0) {
+        await saveAnalysisBlocksMutation.mutateAsync({
+          analysisId: data.id,
+          blocks: state.analysisBlocks,
+        });
+      }
+      
       queryClient.invalidateQueries({ queryKey: ['analyses'] });
     },
   });
@@ -286,6 +519,23 @@ export function useAnalysisWizard() {
 
       if (varsError) throw varsError;
 
+      // Fetch hypotheses
+      const { data: hypotheses, error: hypError } = await supabase
+        .from('hypotheses')
+        .select('*')
+        .eq('analysis_id', analysisId);
+
+      if (hypError) throw hypError;
+
+      // Fetch analysis blocks
+      const { data: blocks, error: blocksError } = await supabase
+        .from('analysis_blocks')
+        .select('*')
+        .eq('analysis_id', analysisId)
+        .order('display_order');
+
+      if (blocksError) throw blocksError;
+
       // Parse raw_data from dataset
       const rawData = analysis.dataset?.raw_data as Record<string, unknown>[] | null;
       let parsedData: ParsedDataset | null = null;
@@ -306,13 +556,47 @@ export function useAnalysisWizard() {
         id: v.id,
         name: v.name,
         label: v.label || '',
-        type: v.type as 'nominal' | 'ordinal' | 'scale',
-        measure: (v.measure || v.type) as 'nominal' | 'ordinal' | 'scale',
+        type: v.type as Variable['measure'],
+        measure: (v.measure || v.type) as Variable['measure'],
+        dataType: 'numeric' as const,
+        role: (v.role as Variable['role']) || null,
         width: v.width || 8,
         decimals: v.decimals || 2,
         valueLabels: (v.value_labels as Record<string, string>) || {},
         missingValues: (v.missing_values as string[]) || [],
         columnIndex: v.column_index,
+        scaleGroup: v.scale_group || undefined,
+      }));
+
+      // Map hypotheses
+      const wizardHypotheses: Hypothesis[] = (hypotheses || []).map((h) => ({
+        id: h.id,
+        hypothesisId: h.hypothesis_id,
+        type: h.hypothesis_type as Hypothesis['type'],
+        statement: h.statement,
+        dependentVariables: h.dependent_vars || [],
+        independentVariables: h.independent_vars || [],
+        status: (h.status as Hypothesis['status']) || 'untested',
+      }));
+
+      // Map analysis blocks
+      const wizardBlocks: AnalysisBlock[] = (blocks || []).map((b) => ({
+        id: b.id,
+        analysisId: b.analysis_id,
+        section: b.section as AnalysisBlock['section'],
+        sectionId: b.section_id,
+        testType: b.test_type,
+        testCategory: b.test_category,
+        dependentVariables: b.dependent_variables || [],
+        independentVariables: b.independent_variables || [],
+        groupingVariable: b.grouping_variable || undefined,
+        linkedHypothesisId: b.linked_hypothesis_id || undefined,
+        config: (b.config as Record<string, unknown>) || {},
+        assumptions: (b.assumptions as unknown as AssumptionResult[]) || [],
+        results: (b.results as unknown as BlockResults) || null,
+        narrative: (b.narrative as unknown as BlockNarrative) || null,
+        displayOrder: b.display_order,
+        status: b.status as AnalysisBlock['status'],
       }));
 
       // Restore state
@@ -324,12 +608,18 @@ export function useAnalysisWizard() {
         parsedData,
         variables: wizardVariables,
         researchQuestion: analysis.research_question || '',
+        hypotheses: wizardHypotheses,
+        analysisBlocks: wizardBlocks,
         hypothesis: analysis.hypothesis || '',
         analysisConfig: analysis.config as unknown as AnalysisConfig | null,
         results: analysis.results as unknown as AnalysisResults | null,
         aiInterpretation: analysis.ai_interpretation || '',
         apaResults: analysis.apa_results || '',
         discussion: analysis.discussion || '',
+        methodology: '',
+        fullResults: '',
+        supervisorMode: false,
+        styleProfile: 'apa7',
         analysisId: analysis.id,
       });
 
@@ -349,15 +639,39 @@ export function useAnalysisWizard() {
     goToStep,
     nextStep,
     prevStep,
+    
+    // Hypothesis management
+    addHypothesis,
+    updateHypothesis,
+    removeHypothesis,
+    
+    // Analysis block management
+    addAnalysisBlock,
+    updateAnalysisBlock,
+    removeAnalysisBlock,
+    reorderAnalysisBlocks,
+    
+    // Variable management
+    updateVariable,
+    getVariablesByRole,
+    getVariablesByMeasure,
+    
+    // Mutations
     createProject: createProjectMutation.mutateAsync,
     saveDataset: saveDatasetMutation.mutateAsync,
     saveVariables: saveVariablesMutation.mutateAsync,
+    saveHypotheses: saveHypothesesMutation.mutateAsync,
+    saveAnalysisBlocks: saveAnalysisBlocksMutation.mutateAsync,
     saveAnalysis: saveAnalysisMutation.mutateAsync,
     loadAnalysis,
     reset,
+    
+    // Loading states
     isCreatingProject: createProjectMutation.isPending,
     isSavingDataset: saveDatasetMutation.isPending,
     isSavingVariables: saveVariablesMutation.isPending,
+    isSavingHypotheses: saveHypothesesMutation.isPending,
+    isSavingAnalysisBlocks: saveAnalysisBlocksMutation.isPending,
     isSavingAnalysis: saveAnalysisMutation.isPending,
   };
 }
