@@ -45,22 +45,30 @@ export type AnalysisSection = 'descriptives' | 'reliability' | 'hypothesis';
 
 // Assumption check results
 export interface AssumptionResult {
-  name: string; // 'normality', 'homogeneity', 'linearity', etc.
-  test: string; // 'Shapiro-Wilk', 'Levene's', etc.
+  name: string;
+  test: string;
   statistic: number;
   df?: number;
   pValue: number;
   passed: boolean;
+  status: 'passed' | 'warning' | 'violated';
   message: string;
+  value?: number;
+  threshold?: number;
+  interpretation?: string;
+  recommendation?: string;
 }
+
 
 // Effect size result
 export interface EffectSizeResult {
-  name: string; // "Cohen's d", "η²", "r", etc.
+  name: string;
+  type: string;
   value: number;
-  magnitude: 'negligible' | 'small' | 'medium' | 'large';
+  magnitude: 'negligible' | 'small' | 'medium' | 'large' | string;
   interpretation: string;
 }
+
 
 // Confidence interval
 export interface ConfidenceInterval {
