@@ -241,6 +241,198 @@ export type Database = {
         }
         Relationships: []
       }
+      auto_reply_rules: {
+        Row: {
+          ai_enabled: boolean | null
+          created_at: string | null
+          custom_response: string | null
+          enabled: boolean | null
+          id: string
+          keywords: string[] | null
+          name: string
+          priority: number | null
+          template_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          ai_enabled?: boolean | null
+          created_at?: string | null
+          custom_response?: string | null
+          enabled?: boolean | null
+          id?: string
+          keywords?: string[] | null
+          name: string
+          priority?: number | null
+          template_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          ai_enabled?: boolean | null
+          created_at?: string | null
+          custom_response?: string | null
+          enabled?: boolean | null
+          id?: string
+          keywords?: string[] | null
+          name?: string
+          priority?: number | null
+          template_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_reply_rules_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "email_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      blog_categories: {
+        Row: {
+          color: string | null
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          slug: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          slug: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          slug?: string
+        }
+        Relationships: []
+      }
+      blog_posts: {
+        Row: {
+          ai_qa: Json | null
+          ai_summary: string | null
+          author_id: string
+          authority_statement: string | null
+          category_id: string | null
+          content: string | null
+          created_at: string
+          excerpt: string | null
+          featured_image: string | null
+          id: string
+          meta_description: string | null
+          meta_keywords: string[] | null
+          meta_title: string | null
+          publish_date: string | null
+          reading_time: number | null
+          slug: string
+          status: string
+          tags: string[] | null
+          title: string
+          updated_at: string
+          view_count: number | null
+        }
+        Insert: {
+          ai_qa?: Json | null
+          ai_summary?: string | null
+          author_id: string
+          authority_statement?: string | null
+          category_id?: string | null
+          content?: string | null
+          created_at?: string
+          excerpt?: string | null
+          featured_image?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_keywords?: string[] | null
+          meta_title?: string | null
+          publish_date?: string | null
+          reading_time?: number | null
+          slug: string
+          status?: string
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          view_count?: number | null
+        }
+        Update: {
+          ai_qa?: Json | null
+          ai_summary?: string | null
+          author_id?: string
+          authority_statement?: string | null
+          category_id?: string | null
+          content?: string | null
+          created_at?: string
+          excerpt?: string | null
+          featured_image?: string | null
+          id?: string
+          meta_description?: string | null
+          meta_keywords?: string[] | null
+          meta_title?: string | null
+          publish_date?: string | null
+          reading_time?: number | null
+          slug?: string
+          status?: string
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          view_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blog_posts_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "blog_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_recipients: {
+        Row: {
+          campaign_id: string | null
+          email: string
+          error_message: string | null
+          id: string
+          name: string | null
+          sent_at: string | null
+          status: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          email: string
+          error_message?: string | null
+          id?: string
+          name?: string | null
+          sent_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          email?: string
+          error_message?: string | null
+          id?: string
+          name?: string | null
+          sent_at?: string | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_recipients_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "email_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           content: string
@@ -326,39 +518,260 @@ export type Database = {
           },
         ]
       }
+      email_accounts: {
+        Row: {
+          account_name: string
+          created_at: string | null
+          email_address: string
+          enable_tls: boolean | null
+          id: string
+          imap_host: string | null
+          imap_password: string | null
+          imap_port: number | null
+          imap_username: string | null
+          is_active: boolean | null
+          is_default: boolean | null
+          last_tested_at: string | null
+          smtp_host: string | null
+          smtp_password: string | null
+          smtp_port: number | null
+          smtp_username: string | null
+          test_status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_name: string
+          created_at?: string | null
+          email_address: string
+          enable_tls?: boolean | null
+          id?: string
+          imap_host?: string | null
+          imap_password?: string | null
+          imap_port?: number | null
+          imap_username?: string | null
+          is_active?: boolean | null
+          is_default?: boolean | null
+          last_tested_at?: string | null
+          smtp_host?: string | null
+          smtp_password?: string | null
+          smtp_port?: number | null
+          smtp_username?: string | null
+          test_status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_name?: string
+          created_at?: string | null
+          email_address?: string
+          enable_tls?: boolean | null
+          id?: string
+          imap_host?: string | null
+          imap_password?: string | null
+          imap_port?: number | null
+          imap_username?: string | null
+          is_active?: boolean | null
+          is_default?: boolean | null
+          last_tested_at?: string | null
+          smtp_host?: string | null
+          smtp_password?: string | null
+          smtp_port?: number | null
+          smtp_username?: string | null
+          test_status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      email_campaigns: {
+        Row: {
+          body: string | null
+          created_at: string | null
+          email_account_id: string | null
+          failed_count: number | null
+          html_content: string | null
+          id: string
+          name: string
+          sent_at: string | null
+          sent_count: number | null
+          status: string | null
+          subject: string
+          total_recipients: number | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string | null
+          email_account_id?: string | null
+          failed_count?: number | null
+          html_content?: string | null
+          id?: string
+          name: string
+          sent_at?: string | null
+          sent_count?: number | null
+          status?: string | null
+          subject: string
+          total_recipients?: number | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string | null
+          email_account_id?: string | null
+          failed_count?: number | null
+          html_content?: string | null
+          id?: string
+          name?: string
+          sent_at?: string | null
+          sent_count?: number | null
+          status?: string | null
+          subject?: string
+          total_recipients?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_campaigns_email_account_id_fkey"
+            columns: ["email_account_id"]
+            isOneToOne: false
+            referencedRelation: "email_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_configurations: {
+        Row: {
+          active: boolean | null
+          check_interval: number | null
+          created_at: string | null
+          enable_auto_reply: boolean | null
+          enable_tls: boolean | null
+          from_email: string | null
+          from_name: string | null
+          host: string | null
+          id: string
+          password: string | null
+          port: number | null
+          type: string
+          updated_at: string | null
+          username: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          check_interval?: number | null
+          created_at?: string | null
+          enable_auto_reply?: boolean | null
+          enable_tls?: boolean | null
+          from_email?: string | null
+          from_name?: string | null
+          host?: string | null
+          id?: string
+          password?: string | null
+          port?: number | null
+          type: string
+          updated_at?: string | null
+          username?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          check_interval?: number | null
+          created_at?: string | null
+          enable_auto_reply?: boolean | null
+          enable_tls?: boolean | null
+          from_email?: string | null
+          from_name?: string | null
+          host?: string | null
+          id?: string
+          password?: string | null
+          port?: number | null
+          type?: string
+          updated_at?: string | null
+          username?: string | null
+        }
+        Relationships: []
+      }
+      email_templates: {
+        Row: {
+          body: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          subject: string
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          subject: string
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          subject?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       hypotheses: {
         Row: {
+          ai_explanation: string | null
           analysis_id: string
+          assumptions_acknowledged: boolean | null
           created_at: string
           dependent_vars: string[]
+          direction: string | null
+          display_order: number | null
           hypothesis_id: string
           hypothesis_type: string
           id: string
           independent_vars: string[]
+          null_hypothesis: string | null
+          priority: string | null
+          quality_status: string | null
+          resolved_test: string | null
           statement: string
           status: string | null
           updated_at: string
         }
         Insert: {
+          ai_explanation?: string | null
           analysis_id: string
+          assumptions_acknowledged?: boolean | null
           created_at?: string
           dependent_vars?: string[]
+          direction?: string | null
+          display_order?: number | null
           hypothesis_id: string
           hypothesis_type?: string
           id?: string
           independent_vars?: string[]
+          null_hypothesis?: string | null
+          priority?: string | null
+          quality_status?: string | null
+          resolved_test?: string | null
           statement: string
           status?: string | null
           updated_at?: string
         }
         Update: {
+          ai_explanation?: string | null
           analysis_id?: string
+          assumptions_acknowledged?: boolean | null
           created_at?: string
           dependent_vars?: string[]
+          direction?: string | null
+          display_order?: number | null
           hypothesis_id?: string
           hypothesis_type?: string
           id?: string
           independent_vars?: string[]
+          null_hypothesis?: string | null
+          priority?: string | null
+          quality_status?: string | null
+          resolved_test?: string | null
           statement?: string
           status?: string | null
           updated_at?: string
@@ -369,6 +782,53 @@ export type Database = {
             columns: ["analysis_id"]
             isOneToOne: false
             referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incoming_emails: {
+        Row: {
+          auto_replied: boolean | null
+          body: string | null
+          email_account_id: string | null
+          from_email: string
+          id: string
+          processed: boolean | null
+          received_at: string | null
+          replied_at: string | null
+          reply_body: string | null
+          subject: string | null
+        }
+        Insert: {
+          auto_replied?: boolean | null
+          body?: string | null
+          email_account_id?: string | null
+          from_email: string
+          id?: string
+          processed?: boolean | null
+          received_at?: string | null
+          replied_at?: string | null
+          reply_body?: string | null
+          subject?: string | null
+        }
+        Update: {
+          auto_replied?: boolean | null
+          body?: string | null
+          email_account_id?: string | null
+          from_email?: string
+          id?: string
+          processed?: boolean | null
+          received_at?: string | null
+          replied_at?: string | null
+          reply_body?: string | null
+          subject?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incoming_emails_email_account_id_fkey"
+            columns: ["email_account_id"]
+            isOneToOne: false
+            referencedRelation: "email_accounts"
             referencedColumns: ["id"]
           },
         ]
@@ -483,6 +943,42 @@ export type Database = {
           },
         ]
       }
+      tutorials: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          sort_order: number | null
+          title: string
+          updated_at: string
+          video_url: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          sort_order?: number | null
+          title: string
+          updated_at?: string
+          video_url: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          sort_order?: number | null
+          title?: string
+          updated_at?: string
+          video_url?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -577,6 +1073,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_blog_view_count: {
+        Args: { post_id: string }
+        Returns: undefined
       }
     }
     Enums: {
