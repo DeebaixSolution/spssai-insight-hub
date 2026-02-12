@@ -133,7 +133,7 @@ export function useAnalysisWizard() {
   }, []);
 
   const goToStep = useCallback((step: number) => {
-    if (step >= 1 && step <= 7) {
+    if (step >= 1 && step <= 13) {
       setState(prev => ({ ...prev, currentStep: step }));
     }
   }, []);
@@ -141,7 +141,7 @@ export function useAnalysisWizard() {
   const nextStep = useCallback(() => {
     setState(prev => ({
       ...prev,
-      currentStep: Math.min(7, prev.currentStep + 1),
+      currentStep: Math.min(13, prev.currentStep + 1),
     }));
   }, []);
 
