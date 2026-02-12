@@ -232,6 +232,45 @@
   @apply bg-muted/50;
 }
 
+/* SPSS-Style Academic Tables */
+.spss-table-container {
+  @apply border border-border rounded-lg overflow-hidden;
+}
+
+.spss-table-academic {
+  @apply w-full text-xs;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.spss-table-academic thead th {
+  @apply font-medium text-left p-2.5 border-b border-border;
+  background-color: hsl(var(--muted));
+  font-size: 13px;
+}
+
+.spss-table-academic tbody td {
+  @apply p-2.5;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  font-size: 12px;
+}
+
+.spss-table-academic tbody tr:hover {
+  background-color: hsl(var(--muted) / 0.5);
+}
+
+.spss-table-academic tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.spss-table-academic .text-right {
+  text-align: right;
+}
+
+.spss-table-academic .font-mono {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

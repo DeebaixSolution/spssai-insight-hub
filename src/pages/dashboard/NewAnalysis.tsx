@@ -1,38 +1,45 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { LayerNavigation } from '@/components/spss-editor/LayerNavigation';
 import { StepProgress } from '@/components/spss-editor/StepProgress';
 import { StepNavigation } from '@/components/spss-editor/StepNavigation';
+import { StatisticalAnalysisCenter } from '@/components/spss-editor/StatisticalAnalysisCenter';
+import { AcademicProductionLayer } from '@/components/spss-editor/AcademicProductionLayer';
 import { Step1Upload } from '@/components/spss-editor/Step1Upload';
 import { Step2Variables } from '@/components/spss-editor/Step2Variables';
 import { Step3Research } from '@/components/spss-editor/Step3Research';
-import { Step4Selection } from '@/components/spss-editor/Step4Selection';
-import { Step5Results } from '@/components/spss-editor/Step5Results';
-import { Step6Interpretation } from '@/components/spss-editor/Step6Interpretation';
-import { Step7Export } from '@/components/spss-editor/Step7Export';
+import { Step4Descriptive } from '@/components/spss-editor/Step4Descriptive';
+import { Step5Parametric } from '@/components/spss-editor/Step5Parametric';
+import { Step6NonParametric } from '@/components/spss-editor/Step6NonParametric';
+import { Step7AnovaGLM } from '@/components/spss-editor/Step7AnovaGLM';
+import { Step8Correlation } from '@/components/spss-editor/Step8Correlation';
+import { Step9Regression } from '@/components/spss-editor/Step9Regression';
+import { Step10Measurement } from '@/components/spss-editor/Step10Measurement';
+import { Step11AcademicResults } from '@/components/spss-editor/Step11AcademicResults';
+import { Step12Theoretical } from '@/components/spss-editor/Step12Theoretical';
+import { Step13ThesisBinder } from '@/components/spss-editor/Step13ThesisBinder';
 import { useAnalysisWizard } from '@/hooks/useAnalysisWizard';
 import { useDataParser } from '@/hooks/useDataParser';
 import { usePlanLimits } from '@/hooks/usePlanLimits';
 import { UpgradePrompt } from '@/components/plan/UpgradePrompt';
 import { toast } from 'sonner';
 
-const steps = [
+// Layer 1 steps for the mini-progress within Research Design
+const layer1Steps = [
   { number: 1, title: 'Upload Data' },
   { number: 2, title: 'Variables' },
   { number: 3, title: 'Research' },
-  { number: 4, title: 'Analysis' },
-  { number: 5, title: 'Results' },
-  { number: 6, title: 'Interpret' },
-  { number: 7, title: 'Export' },
 ];
 
 export default function NewAnalysis() {
   const navigate = useNavigate();
   const location = useLocation();
   const { detectVariableTypes } = useDataParser();
-  const { canCreateAnalysis, getAnalysesRemaining } = usePlanLimits();
+  const { canCreateAnalysis } = usePlanLimits();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [suggestedTest, setSuggestedTest] = useState<{ category: string; type: string } | undefined>();
   const [isSaving, setIsSaving] = useState(false);
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
 
   const {
     state,
@@ -64,6 +71,18 @@ export default function NewAnalysis() {
     }
   }, [location.state, loadAnalysis]);
 
+  // Track completed steps
+  const markStepCompleted = useCallback((step: number) => {
+    setCompletedSteps(prev => new Set([...prev, step]));
+  }, []);
+
+  // Determine current layer
+  const currentLayer = useMemo(() => {
+    if (state.currentStep <= 3) return 1;
+    if (state.currentStep <= 10) return 2;
+    return 3;
+  }, [state.currentStep]);
+
   const canProceed = () => {
     switch (state.currentStep) {
       case 1:
@@ -73,12 +92,12 @@ export default function NewAnalysis() {
       case 3:
         return true; // Optional step
       case 4:
-        return !!state.analysisConfig?.testType;
-      case 5:
-        return !!state.results;
-      case 6:
-        return !!state.aiInterpretation;
-      case 7:
+        return completedSteps.has(4);
+      case 5: case 6: case 7: case 8: case 9: case 10:
+        return true; // Optional tabs within Layer 2
+      case 11: case 12:
+        return true;
+      case 13:
         return true;
       default:
         return false;
@@ -91,24 +110,31 @@ export default function NewAnalysis() {
       if (state.currentStep === 1 && state.parsedData) {
         const project = await createProject(state.projectName);
         await saveDataset({ projectId: project.id, parsedData: state.parsedData });
-        
-        // Auto-detect variable types
         const detectedVars = detectVariableTypes(state.parsedData);
         updateState({ variables: detectedVars });
+        markStepCompleted(1);
       }
 
-      // Step 4 -> 5: Save analysis config
-      if (state.currentStep === 4 && state.analysisConfig) {
-        await saveAnalysis({ analysisConfig: state.analysisConfig });
+      // Mark current step completed on advance
+      if (state.currentStep === 2 && state.variables.length > 0) {
+        markStepCompleted(2);
+      }
+      if (state.currentStep === 3) {
+        markStepCompleted(3);
       }
 
-      // Step 6 -> 7: Save interpretation
-      if (state.currentStep === 6) {
-        await saveAnalysis({
-          aiInterpretation: state.aiInterpretation,
-          apaResults: state.apaResults,
-          discussion: state.discussion,
-        });
+      // Step transitions within Layer 2
+      if (state.currentStep >= 4 && state.currentStep <= 9) {
+        markStepCompleted(state.currentStep);
+      }
+
+      // Save analysis config at key transitions
+      if (state.currentStep === 10) {
+        markStepCompleted(10);
+      }
+
+      if (state.currentStep === 12) {
+        markStepCompleted(12);
       }
 
       nextStep();
@@ -120,7 +146,8 @@ export default function NewAnalysis() {
 
   const handleFinish = async () => {
     try {
-      await saveAnalysis({ currentStep: 7 });
+      await saveAnalysis({ currentStep: 13 });
+      markStepCompleted(13);
       toast.success('Analysis saved successfully!');
       navigate('/dashboard/reports');
     } catch (err) {
@@ -129,23 +156,18 @@ export default function NewAnalysis() {
     }
   };
 
-  // Save progress without advancing to next step
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      // If no project yet, create it first
       if (!state.projectId && state.parsedData && state.projectName.trim()) {
         const project = await createProject(state.projectName);
         await saveDataset({ projectId: project.id, parsedData: state.parsedData });
-        
-        // Auto-detect variable types if not already done
         if (state.variables.length === 0) {
           const detectedVars = detectVariableTypes(state.parsedData);
           updateState({ variables: detectedVars });
         }
       }
 
-      // Save current analysis state
       if (state.projectId && state.datasetId) {
         await saveAnalysis({
           currentStep: state.currentStep,
@@ -166,114 +188,131 @@ export default function NewAnalysis() {
     } finally {
       setIsSaving(false);
     }
-  }, [
-    state,
-    createProject,
-    saveDataset,
-    saveAnalysis,
-    updateState,
-    detectVariableTypes,
-  ]);
+  }, [state, createProject, saveDataset, saveAnalysis, updateState, detectVariableTypes]);
 
   const isLoading = isCreatingProject || isSavingDataset || isSavingAnalysis;
-
-  // Determine if save is possible
-  const canSave = state.currentStep >= 1 && 
+  const canSave = state.currentStep >= 1 &&
     Boolean(state.projectId || (state.parsedData && state.projectName.trim()));
 
-  return (
-    <div className="max-w-5xl mx-auto">
-      {/* Step Progress */}
-      <StepProgress
-        steps={steps}
+  // Render step content based on current layer
+  const renderStepContent = () => {
+    // Layer 1: Research Design (Steps 1-3)
+    if (currentLayer === 1) {
+      return (
+        <>
+          {state.currentStep === 1 && (
+            <Step1Upload
+              onDataParsed={(data) => updateState({ parsedData: data })}
+              parsedData={state.parsedData}
+              projectName={state.projectName}
+              onProjectNameChange={(name) => updateState({ projectName: name })}
+            />
+          )}
+          {state.currentStep === 2 && (
+            <Step2Variables
+              variables={state.variables}
+              onVariablesChange={(vars) => updateState({ variables: vars })}
+              parsedData={state.parsedData}
+            />
+          )}
+          {state.currentStep === 3 && (
+            <Step3Research
+              researchQuestion={state.researchQuestion}
+              onResearchQuestionChange={(q) => updateState({ researchQuestion: q })}
+              variables={state.variables}
+              hypotheses={state.hypotheses}
+              onHypothesesChange={(hypotheses) => updateState({ hypotheses })}
+              hypothesis={state.hypothesis}
+              onHypothesisChange={(h) => updateState({ hypothesis: h })}
+              onSuggestedTest={(cat, type) => setSuggestedTest({ category: cat, type })}
+            />
+          )}
+        </>
+      );
+    }
+
+    // Layer 2: Statistical Analysis Center (Steps 4-10)
+    if (currentLayer === 2) {
+      return (
+        <StatisticalAnalysisCenter
+          currentStep={state.currentStep}
+          completedSteps={completedSteps}
+          onTabClick={goToStep}
+        >
+          {state.currentStep === 4 && (
+            <Step4Descriptive
+              variables={state.variables}
+              parsedData={state.parsedData}
+              onComplete={() => markStepCompleted(4)}
+            />
+          )}
+          {state.currentStep === 5 && (
+            <Step5Parametric variables={state.variables} parsedData={state.parsedData} />
+          )}
+          {state.currentStep === 6 && (
+            <Step6NonParametric variables={state.variables} parsedData={state.parsedData} />
+          )}
+          {state.currentStep === 7 && (
+            <Step7AnovaGLM variables={state.variables} parsedData={state.parsedData} />
+          )}
+          {state.currentStep === 8 && (
+            <Step8Correlation variables={state.variables} parsedData={state.parsedData} />
+          )}
+          {state.currentStep === 9 && (
+            <Step9Regression variables={state.variables} parsedData={state.parsedData} />
+          )}
+          {state.currentStep === 10 && (
+            <Step10Measurement variables={state.variables} parsedData={state.parsedData} />
+          )}
+        </StatisticalAnalysisCenter>
+      );
+    }
+
+    // Layer 3: Academic Production (Steps 11-13)
+    return (
+      <AcademicProductionLayer
         currentStep={state.currentStep}
-        onStepClick={goToStep}
+        completedSteps={completedSteps}
+        onSubStepClick={goToStep}
+      >
+        {state.currentStep === 11 && <Step11AcademicResults />}
+        {state.currentStep === 12 && <Step12Theoretical />}
+        {state.currentStep === 13 && <Step13ThesisBinder />}
+      </AcademicProductionLayer>
+    );
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      {/* 3-Layer Navigation */}
+      <LayerNavigation
+        currentStep={state.currentStep}
+        completedSteps={completedSteps}
+        onLayerClick={goToStep}
       />
+
+      {/* Layer 1: Show step progress within Research Design */}
+      {currentLayer === 1 && (
+        <StepProgress
+          steps={layer1Steps}
+          currentStep={state.currentStep}
+          onStepClick={goToStep}
+        />
+      )}
 
       {/* Step Content */}
       <div className="data-card">
-        {state.currentStep === 1 && (
-          <Step1Upload
-            onDataParsed={(data) => updateState({ parsedData: data })}
-            parsedData={state.parsedData}
-            projectName={state.projectName}
-            onProjectNameChange={(name) => updateState({ projectName: name })}
-          />
-        )}
-
-        {state.currentStep === 2 && (
-          <Step2Variables
-            variables={state.variables}
-            onVariablesChange={(vars) => updateState({ variables: vars })}
-            parsedData={state.parsedData}
-          />
-        )}
-
-        {state.currentStep === 3 && (
-          <Step3Research
-            researchQuestion={state.researchQuestion}
-            onResearchQuestionChange={(q) => updateState({ researchQuestion: q })}
-            variables={state.variables}
-            hypotheses={state.hypotheses}
-            onHypothesesChange={(hypotheses) => updateState({ hypotheses })}
-            hypothesis={state.hypothesis}
-            onHypothesisChange={(h) => updateState({ hypothesis: h })}
-            onSuggestedTest={(cat, type) => setSuggestedTest({ category: cat, type })}
-          />
-        )}
-
-        {state.currentStep === 4 && (
-          <Step4Selection
-            variables={state.variables}
-            analysisConfig={state.analysisConfig}
-            onConfigChange={(config) => updateState({ analysisConfig: config })}
-            suggestedTest={suggestedTest}
-          />
-        )}
-
-        {state.currentStep === 5 && (
-          <Step5Results
-            analysisConfig={state.analysisConfig}
-            parsedData={state.parsedData}
-            results={state.results}
-            onResultsChange={(results) => updateState({ results })}
-          />
-        )}
-
-        {state.currentStep === 6 && (
-          <Step6Interpretation
-            analysisConfig={state.analysisConfig}
-            results={state.results}
-            researchQuestion={state.researchQuestion}
-            aiInterpretation={state.aiInterpretation}
-            onAiInterpretationChange={(i) => updateState({ aiInterpretation: i })}
-            apaResults={state.apaResults}
-            onApaResultsChange={(a) => updateState({ apaResults: a })}
-            discussion={state.discussion}
-            onDiscussionChange={(d) => updateState({ discussion: d })}
-          />
-        )}
-
-        {state.currentStep === 7 && (
-          <Step7Export
-            projectName={state.projectName}
-            researchQuestion={state.researchQuestion}
-            results={state.results}
-            aiInterpretation={state.aiInterpretation}
-            apaResults={state.apaResults}
-            discussion={state.discussion}
-          />
-        )}
+        {renderStepContent()}
 
         {/* Navigation */}
         <StepNavigation
           currentStep={state.currentStep}
-          totalSteps={7}
+          totalSteps={13}
           onNext={handleNext}
           onPrevious={prevStep}
           canGoNext={canProceed()}
           isLoading={isLoading}
-          showFinish={state.currentStep === 7}
+          showFinish={state.currentStep === 13}
           onFinish={handleFinish}
           onSave={handleSave}
           isSaving={isSaving}
