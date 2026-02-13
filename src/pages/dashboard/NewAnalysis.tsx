@@ -275,9 +275,9 @@ export default function NewAnalysis() {
         completedSteps={completedSteps}
         onSubStepClick={goToStep}
       >
-        {state.currentStep === 11 && <Step11AcademicResults />}
-        {state.currentStep === 12 && <Step12Theoretical />}
-        {state.currentStep === 13 && <Step13ThesisBinder />}
+        {state.currentStep === 11 && <Step11AcademicResults analysisId={state.analysisId} projectId={state.projectId} />}
+        {state.currentStep === 12 && <Step12Theoretical analysisId={state.analysisId} />}
+        {state.currentStep === 13 && <Step13ThesisBinder analysisId={state.analysisId} />}
       </AcademicProductionLayer>
     );
   };

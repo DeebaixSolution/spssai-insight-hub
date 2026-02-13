@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DataPreviewTable } from './DataPreviewTable';
+import { DataQualitySummary } from './DataQualitySummary';
 import { usePlanLimits } from '@/hooks/usePlanLimits';
 import { useDataParser } from '@/hooks/useDataParser';
 import { ParsedDataset } from '@/hooks/useAnalysisWizard';
@@ -206,6 +207,9 @@ export function Step1Upload({
             rows={parsedData.rows}
             maxRows={10}
           />
+
+          {/* Data Quality Summary */}
+          <DataQualitySummary parsedData={parsedData} />
         </div>
       )}
 

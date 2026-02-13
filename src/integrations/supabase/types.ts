@@ -433,6 +433,44 @@ export type Database = {
           },
         ]
       }
+      chapter_results: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          full_text: string | null
+          id: string
+          section_mapping: Json | null
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          full_text?: string | null
+          id?: string
+          section_mapping?: Json | null
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          full_text?: string | null
+          id?: string
+          section_mapping?: Json | null
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chapter_results_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           content: string
@@ -464,6 +502,50 @@ export type Database = {
             columns: ["dataset_context_id"]
             isOneToOne: false
             referencedRelation: "datasets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      citations: {
+        Row: {
+          analysis_id: string
+          author: string
+          created_at: string
+          doi: string | null
+          formatted_reference: string | null
+          id: string
+          journal: string | null
+          title: string
+          year: string
+        }
+        Insert: {
+          analysis_id: string
+          author: string
+          created_at?: string
+          doi?: string | null
+          formatted_reference?: string | null
+          id?: string
+          journal?: string | null
+          title: string
+          year: string
+        }
+        Update: {
+          analysis_id?: string
+          author?: string
+          created_at?: string
+          doi?: string | null
+          formatted_reference?: string | null
+          id?: string
+          journal?: string | null
+          title?: string
+          year?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "citations_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
             referencedColumns: ["id"]
           },
         ]
@@ -514,6 +596,50 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discussion_chapter: {
+        Row: {
+          analysis_id: string
+          chapter5_text: string | null
+          citations_used: Json | null
+          created_at: string
+          id: string
+          mode: string
+          theory_input: Json | null
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          analysis_id: string
+          chapter5_text?: string | null
+          citations_used?: Json | null
+          created_at?: string
+          id?: string
+          mode?: string
+          theory_input?: Json | null
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          analysis_id?: string
+          chapter5_text?: string | null
+          citations_used?: Json | null
+          created_at?: string
+          id?: string
+          mode?: string
+          theory_input?: Json | null
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discussion_chapter_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
             referencedColumns: ["id"]
           },
         ]
@@ -936,6 +1062,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "reports_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      thesis_exports: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          export_type: string
+          file_url: string | null
+          id: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          export_type?: string
+          file_url?: string | null
+          id?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          export_type?: string
+          file_url?: string | null
+          id?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "thesis_exports_analysis_id_fkey"
             columns: ["analysis_id"]
             isOneToOne: false
             referencedRelation: "analyses"

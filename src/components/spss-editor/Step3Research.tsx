@@ -11,6 +11,7 @@ import { PlanGate } from '@/components/plan/PlanGate';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { HypothesisCard } from './HypothesisCard';
+import { StatisticalDecisionEngine } from './StatisticalDecisionEngine';
 
 interface Step3ResearchProps {
   researchQuestion: string;
@@ -347,6 +348,15 @@ export function Step3Research({
         </div>
       </div>
 
+      {/* Statistical Decision Engine */}
+      {hypotheses.length > 0 && (
+        <StatisticalDecisionEngine
+          variables={variables}
+          parsedData={null}
+          hypotheses={hypotheses}
+        />
+      )}
+
       {/* Validation Warning */}
       {dvCount === 0 && hypotheses.length > 0 && (
         <Alert variant="destructive">
@@ -358,15 +368,15 @@ export function Step3Research({
         </Alert>
       )}
 
-      {/* Tips */}
-      <Alert>
-        <Lightbulb className="h-4 w-4" />
-        <AlertDescription>
-          <strong>Tip:</strong> Each hypothesis should clearly state what you're testing. Use the type selector
-          to indicate whether you're comparing groups (difference), examining relationships (association),
-          or predicting outcomes (prediction).
-        </AlertDescription>
-      </Alert>
+      {/* Progression Gate */}
+      {hypotheses.length === 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Add at least one hypothesis to proceed to the Statistical Analysis Center.
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }
