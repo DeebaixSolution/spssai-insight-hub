@@ -1,857 +1,228 @@
 
 
-# Complete Rebuild: Advanced Statistical Analysis Wizard (SPSS-Level Professional)
+# Upgrade Plan: Research Design Intelligence (Steps 1-3) + Academic Production (Steps 11-13)
 
-## ✅ COMPLETED (Phase 1)
-
-### 1. Database Schema ✅
-- Created `analysis_blocks` table with RLS policies
-- Created `hypotheses` table with RLS policies  
-- Added `role` and `scale_group` columns to `variables` table
-
-### 2. Core Types & Interfaces ✅
-- Created `src/types/analysis.ts` with all TypeScript interfaces
-- Defined Variable, Hypothesis, AnalysisBlock, BlockResults, BlockNarrative
-- Added complete ANALYSIS_TESTS and ANALYSIS_CATEGORIES constants
-- Implemented `getRecommendedTests()` for guided UI intelligence
-
-### 3. useAnalysisWizard Hook ✅
-- Enhanced with hypothesis management (add/update/remove)
-- Added analysis block management (add/update/remove/reorder)
-- Added variable role/measure helpers
-- Integrated save/load for hypotheses and analysis blocks
-
-### 4. Step 2 - SPSS Variable View ✅
-- Full variable grid with Name, Role, Measure, Width, Decimals, Label, Values
-- Role assignment (ID, Demographic, DV, IV, Scale Item) with color coding
-- Value Labels editor dialog with auto-detected value suggestions
-- Scale Item Grouping dialog for reliability analysis
-- AI Detection button (Pro)
-- Role summary cards and validation warnings
-
-### 5. Step 3 - Hypothesis Builder ✅
-- HypothesisCard component with collapsible UI
-- Hypothesis type selector (Difference, Association, Prediction)
-- DV/IV variable assignment with dropdowns
-- Real-time test recommendations based on variable types
-- AI Suggest Hypotheses button (Pro)
-- Variable summary by role and measure
-
-## 🔄 REMAINING (Phase 2-4)
-
-### What Currently Exists
-
-| Component | Current Status | Gap |
-|-----------|---------------|-----|
-| Step 1: Upload | Basic upload, CSV/Excel | Works, needs enhancement |
-| Step 2: Variables | Limited SPSS Variable View | Missing roles, value labels editor |
-| Step 3: Research | Basic text fields | Missing hypothesis builder, linking |
-| Step 4: Analysis | Test selection only | No guided recommendations, no blocking |
-| Step 5: Results | Basic tables/charts | No assumption output, missing tests |
-| Step 6: Interpretation | 5 AI-generated sections | No per-test writing logic |
-| Step 7: Export | HTML export | Missing Word/PDF with proper formatting |
-
-### Statistical Tests Currently Implemented
-
-- Frequencies, Descriptives, Crosstabs
-- Independent T-Test, Paired T-Test
-- One-Way ANOVA (basic)
-- Pearson, Spearman
-- Chi-Square, Mann-Whitney, Wilcoxon
-- Cronbach's Alpha
-
-### Missing Tests (Required by Your Specification)
-
-- One-Sample T-Test
-- Two-Way ANOVA
-- Repeated Measures ANOVA
-- Kruskal-Wallis H
-- Friedman Test
-- Kendall's Tau
-- Simple Linear Regression
-- Multiple Linear Regression
-- Binary Logistic Regression
-- KMO & Bartlett's Test
-- Exploratory Factor Analysis (EFA)
-- Normality Tests (standalone)
+This plan covers two major issues: strengthening Steps 1-3 with academic SPSS-level intelligence, and building out Steps 11-13 from placeholders into fully functional engines.
 
 ---
 
-## Phase 1: Data Model & State Architecture
+## Current State
 
-### 1.1 Enhanced WizardState Interface
+**Steps 1-3:** Basic functionality exists -- file upload with type/size validation, a Variable View with role/measure assignment and AI detection, and a Research step with hypothesis cards and AI suggestions. No data quality validation, no statistical decision engine, no automatic H0/H1 generation.
 
-```
-File: src/hooks/useAnalysisWizard.ts
-
-New interfaces:
-
-Variable (enhanced):
-  - name, label, type, measure
-  - role: 'id' | 'demographic' | 'dependent' | 'independent' | 'scale_item' | null
-  - valueLabels: Record<string, string>
-  - decimals, width
-  - missingValues: string[]
-  - scaleGroup?: string (for grouped scale items)
-
-Hypothesis:
-  - id: string (H1, H2, H3...)
-  - type: 'difference' | 'association' | 'prediction'
-  - statement: string
-  - dependentVariables: string[]
-  - independentVariables: string[]
-  - linkedAnalysisBlockId?: string
-  - status: 'untested' | 'supported' | 'rejected' | null
-
-AnalysisBlock:
-  - id: string
-  - section: 'reliability' | 'descriptives' | 'hypothesis'
-  - sectionId: string (e.g., 'H1', 'demographics')
-  - testType: string
-  - testCategory: string
-  - dependentVariables: string[]
-  - independentVariables: string[]
-  - groupingVariable?: string
-  - linkedHypothesisId?: string
-  - assumptions: AssumptionResult[]
-  - results: BlockResults | null
-  - narrative: BlockNarrative | null
-
-BlockResults:
-  - tables: Table[]
-  - charts: Chart[]
-  - effectSize: EffectSizeResult
-  - confidenceIntervals: CIResult[]
-  - postHocTests?: PostHocResult[]
-
-BlockNarrative:
-  - tableTitle: string (APA formatted)
-  - introduction: string
-  - interpretation: string
-  - figureTitle?: string
-  - figureInterpretation?: string
-  - hypothesisDecision?: string
-```
-
-### 1.2 New Database Schema
-
-```
-Table: analysis_blocks
-  - id: uuid
-  - analysis_id: uuid (FK)
-  - section: text
-  - section_id: text
-  - test_type: text
-  - config: jsonb
-  - assumptions: jsonb
-  - results: jsonb
-  - narrative: jsonb
-  - display_order: integer
-  - created_at: timestamp
-
-Table: hypotheses
-  - id: uuid
-  - analysis_id: uuid (FK)
-  - hypothesis_id: text (H1, H2...)
-  - type: text
-  - statement: text
-  - dependent_vars: text[]
-  - independent_vars: text[]
-  - status: text
-  - created_at: timestamp
-```
+**Steps 11-13:** All three are placeholder components showing "Coming in Phase X" text. No actual logic, no database tables, no export capability.
 
 ---
 
-## Phase 2: Step-by-Step Rebuild
+## ISSUE 1: Research Design Intelligence (Steps 1-3)
 
-### Step 1: Upload Data (Enhanced)
+### Step 1 -- Data Quality Intelligence Layer
 
-**File: `src/components/spss-editor/Step1Upload.tsx`**
+**What changes:** After file parsing succeeds, automatically run a data quality scan and display a collapsible "Data Quality Summary" panel below the file preview.
 
-Current functionality retained plus:
+**File:** `src/components/spss-editor/Step1Upload.tsx`
 
-1. **Project Name Enforcement**
-   - Project name becomes mandatory
-   - Auto-generate from filename if empty, but require confirmation
+New sub-component: `src/components/spss-editor/DataQualitySummary.tsx`
 
-2. **Enhanced Validation**
-   - Real-time row/column count display
-   - File type validation with clear error messages
-   - Preview first 10 rows with column type indicators
+**Intelligence computed (client-side, deterministic):**
+- Header validation: detect empty headers, duplicate names, special characters
+- Missing values: count and percentage per variable
+- Data type detection: continuous, ordinal, binary, count (based on unique value analysis)
+- Duplicate row detection (exact match count)
+- Basic outlier flags: IQR method for numeric columns, flag count per variable
+- Overall data quality score (Good / Needs Attention / Issues Found)
 
-3. **Auto-Save Trigger**
-   - Create project immediately on file upload
-   - Save dataset to database before proceeding
+**UI:** A summary panel with 4 mini-cards (Missing Values, Duplicates, Outliers, Type Consistency) plus a collapsible detail table. No extra screen -- appears inline after upload.
 
-No major changes needed - current implementation is solid.
-
----
-
-### Step 2: Variables Configuration (SPSS Variable View)
-
-**File: `src/components/spss-editor/Step2Variables.tsx` (Complete Rebuild)**
-
-New component structure:
-
-1. **Full SPSS Variable View Table**
-   - Columns: Name | Label | Type | Measure | Role | Width | Decimals | Values | Missing
-   - Inline editing for all fields
-   - Drag-to-reorder support
-
-2. **Role Assignment (New)**
-   - Dropdown for each variable:
-     - ID
-     - Demographic
-     - Dependent Variable (DV)
-     - Independent Variable (IV)
-     - Scale Item
-   - Visual color coding by role
-
-3. **Value Labels Editor (New)**
-   - Modal dialog for editing value labels
-   - Example: 1 = Male, 2 = Female
-   - Import from common patterns
-
-4. **Scale Item Grouping (New)**
-   - Group multiple items into a scale
-   - Auto-detect patterns (e.g., Q1_1, Q1_2, Q1_3)
-   - Name the scale construct
-
-5. **AI Detection (Pro)**
-   - Button: "AI Detect Types & Roles"
-   - Uses LLM to analyze variable names and sample data
-   - Suggests type, measure, and role
-
-6. **Validation Rules**
-   - Cannot mark ID variable as DV
-   - Warning if no DV assigned for inferential tests
-   - Enforce at least 2 scale items for reliability analysis
+**Progression gate:** Warns but does not block if issues are found. Displays a yellow/red badge on the Data Quality panel.
 
 ---
 
-### Step 3: Research Question & Hypotheses Builder
+### Step 2 -- Variable Intelligence + Scale Logic Control
 
-**File: `src/components/spss-editor/Step3Research.tsx` (Complete Rebuild)**
-
-New component structure:
-
-1. **Research Question Input**
-   - Text area for main research question
-   - Guidance text explaining importance
-
-2. **Hypotheses Builder (New - Critical)**
-   - Add Hypothesis button creates cards
-   - Each hypothesis card contains:
-     - ID: H1, H2, H3... (auto-assigned)
-     - Type selector: Difference | Association | Prediction
-     - Statement text area
-     - Link to DV(s): Dropdown from variables with role=DV
-     - Link to IV(s): Dropdown from variables with role=IV
-   - Visual indicator showing linked variables
-
-3. **AI Hypothesis Assistant (Pro)**
-   - "AI Suggest Hypotheses" button
-   - Analyzes research question + variables
-   - Suggests testable hypotheses
-   - Warns if hypothesis is untestable
-
-4. **Test Recommendation Preview**
-   - Based on hypothesis type and variable measures:
-     - Difference + Scale DV + Nominal IV (2 groups) -> "Recommended: Independent T-Test"
-     - Association + Scale + Scale -> "Recommended: Pearson Correlation"
-   - Displayed as chips under each hypothesis
-
-5. **Validation**
-   - Cannot proceed if hypothesis has no linked variables
-   - Warning for hypotheses without clear DV/IV distinction
-
----
-
-### Step 4: Analysis Mapping & Configuration (Critical Rebuild)
-
-**File: `src/components/spss-editor/Step4Selection.tsx` (Complete Rebuild)**
-
-This is the most complex step requiring complete architectural change.
-
-1. **Analysis Block Architecture**
-   - Each test becomes an independent "Analysis Block"
-   - Blocks are organized by section:
-     - Descriptives/Demographics (no hypothesis)
-     - Reliability (no hypothesis)
-     - Hypothesis Testing (linked to H1, H2...)
-
-2. **Left Panel: Analysis Library**
-   - Categories with all tests:
-
-   ```
-   Descriptive & Preliminary:
-   - Frequencies
-   - Descriptives
-   - Crosstabs
-   - Normality Tests (Shapiro-Wilk, K-S)
-   - Outlier Detection
-
-   Reliability:
-   - Cronbach's Alpha
-   - Item-Total Statistics
-
-   Mean Comparisons:
-   - One-Sample T-Test
-   - Independent Samples T-Test
-   - Paired Samples T-Test
-   - One-Way ANOVA
-   - Two-Way ANOVA
-   - Repeated Measures ANOVA
-
-   Nonparametric:
-   - Mann-Whitney U
-   - Wilcoxon Signed-Rank
-   - Kruskal-Wallis H
-   - Friedman Test
-   - Chi-Square Test
-
-   Correlation:
-   - Pearson Correlation
-   - Spearman Correlation
-   - Kendall's Tau
-
-   Regression:
-   - Simple Linear Regression
-   - Multiple Linear Regression
-   - Binary Logistic Regression
-
-   Factor Analysis:
-   - KMO & Bartlett's Test
-   - Exploratory Factor Analysis (EFA)
-   ```
-
-3. **Guided UI Intelligence (Critical)**
-   - Real-time analysis of selected DV and IV:
-     - If DV = Scale AND IV = Nominal (2 groups):
-       - Highlight Independent T-Test with blue glow
-       - Show: "Recommended based on variable measurement levels"
-     - If DV = Ordinal:
-       - Disable Pearson (red overlay)
-       - Highlight Spearman/Mann-Whitney (blue glow)
-   - Test incompatibility = Red block with tooltip
-   - Assumption violation warning = Orange warning badge
-
-4. **Right Panel: Block Configuration**
-   - For each added block:
-     - Section: Dropdown (Descriptives | Reliability | H1 | H2...)
-     - Link to Hypothesis: Required for inferential tests
-     - Variable assignment:
-       - DV slot(s)
-       - IV slot(s)
-       - Grouping variable (if applicable)
-     - Test options (e.g., post-hoc selection)
-
-5. **Validation & Blocking**
-   - Cannot add T-Test without linked hypothesis
-   - Cannot proceed with invalid variable assignments
-   - Show clear error messages with resolution steps
-
-6. **Block Reordering**
-   - Drag-and-drop to reorder blocks
-   - Auto-order: Descriptives -> Reliability -> H1 -> H2...
-
----
-
-### Step 5: Run Analysis (Separated & Structured Results)
+**What changes:** Enhance the existing Variable View with academic validation logic.
 
 **Files:**
-- `src/components/spss-editor/Step5Results.tsx` (Complete Rebuild)
-- `supabase/functions/run-analysis/index.ts` (Major Enhancement)
+- `src/components/spss-editor/Step2Variables.tsx` (modify)
+- `src/components/spss-editor/VariableIntelligencePanel.tsx` (new)
 
-#### Frontend Component
+**Enhancements:**
+1. **Enhanced AI classification** -- Extend the `detect-variables` edge function to return granular types: Continuous, Binary, Count, Likert, Categorical (in addition to scale/ordinal/nominal mapping)
+2. **Scale grouping validation** -- Enforce minimum 2 items for scale groups (already exists in `saveScaleGroup`). Add: if scale items grouped, auto-trigger Cronbach's Alpha check via edge function. If alpha < 0.60, show red warning badge on the scale group.
+3. **DV/IV consistency enforcement** -- Validate: at least 1 DV assigned before proceeding, warn if DV and IV are the same variable, warn if DV is nominal for parametric-oriented hypotheses
+4. **Confidence indicator** -- Show a colored dot (green/yellow/red) next to each variable's detected type, based on detection confidence (high = >90% of values match, medium = 70-90%, low = <70%)
 
-1. **Block-by-Block Execution**
-   - Run button for each analysis block separately
-   - "Run All" button for sequential execution
-   - Progress indicator per block
-
-2. **Per-Block Output Structure**
-   - Each block produces:
-     - One or more SPSS-style tables
-     - Assumption check results (expanded/collapsed)
-     - Effect size interpretation
-     - One chart (if applicable)
-   - Blocks are visually separated with section headers
-
-3. **Assumption Panel (New - Critical)**
-   - Displayed above main results for each block
-   - Shows:
-     - Normality test result (Shapiro-Wilk)
-     - Homogeneity of variance (Levene's)
-     - Outlier detection summary
-   - Traffic light system: Green (pass), Orange (warning), Red (violation)
-   - Action buttons: "Switch to Non-parametric", "Proceed Anyway"
-
-4. **Effect Size Display (Mandatory)**
-   - Dedicated row/card for effect size
-   - Shows: Value | Magnitude | Interpretation
-   - Never hidden or omitted
-
-5. **Post-Hoc Automatic Trigger**
-   - If ANOVA/Kruskal-Wallis/Friedman is significant (p < 0.05):
-     - Automatically run post-hoc tests
-     - Display pairwise comparison table
-
-6. **No Mixed Tables**
-   - Each variable in Frequencies = separate table
-   - Each analysis block = separate output section
-   - Clear visual separation
-
-#### Backend Edge Function
-
-Add new statistical tests:
-
-```
-Tests to implement in run-analysis/index.ts:
-
-1. one-sample-t-test
-   - Compare mean to known value
-   - Cohen's d effect size
-
-2. two-way-anova
-   - Main effects + interaction
-   - Partial eta-squared for each effect
-
-3. repeated-measures-anova
-   - Sphericity check (Mauchly's)
-   - Greenhouse-Geisser correction
-   - Post-hoc with Bonferroni
-
-4. kruskal-wallis
-   - H statistic
-   - Post-hoc: Dunn's test
-
-5. friedman-test
-   - Chi-square approximation
-   - Pairwise Wilcoxon post-hoc
-
-6. kendall-tau
-   - Tau-b coefficient
-   - P-value
-
-7. simple-linear-regression
-   - R-squared
-   - Coefficients with CI
-   - ANOVA table
-   - Residual diagnostics
-
-8. multiple-regression
-   - Model summary (R, R-squared, adjusted)
-   - ANOVA
-   - Coefficients (B, SE, Beta, t, p)
-   - Collinearity (VIF, Tolerance)
-
-9. logistic-regression
-   - Model fit (Chi-square, -2LL)
-   - Coefficients (B, SE, Wald, Exp(B))
-   - Classification table
-   - ROC curve data
-
-10. kmo-bartlett
-    - KMO value
-    - Bartlett's test of sphericity
-
-11. efa
-    - Initial eigenvalues
-    - Scree plot data
-    - Rotated factor loadings
-    - Communalities
-```
+**Edge function update:** `supabase/functions/detect-variables/index.ts` -- extend prompt to return confidence scores and granular sub-types.
 
 ---
 
-### Step 6: AI Academic Writing Engine (Core Intelligence)
+### Step 3 -- Statistical Decision Engine
+
+**What changes:** Transform from a simple hypothesis input form into an academic statistical decision engine.
 
 **Files:**
-- `src/components/spss-editor/Step6Interpretation.tsx` (Major Enhancement)
-- `supabase/functions/interpret-results/index.ts` (Major Enhancement)
+- `src/components/spss-editor/Step3Research.tsx` (major rewrite)
+- `src/components/spss-editor/HypothesisCard.tsx` (enhance)
+- `src/components/spss-editor/StatisticalDecisionEngine.tsx` (new)
 
-#### Frontend Component
+**Enhancements:**
 
-1. **Per-Block Writing**
-   - Generate interpretation for each analysis block separately
-   - Not one combined interpretation
+1. **Decision engine before test suggestion:**
+   - Evaluate DV type (scale/nominal/ordinal)
+   - Count IV groups (from unique values or value labels)
+   - Check sample size per group
+   - Determine assumption requirements
+   - Decision logic: if parametric assumptions likely satisfied, recommend parametric; otherwise recommend non-parametric alternative
 
-2. **Writing Sections per Block**
-   - Section Heading (auto-generated based on hypothesis)
-   - Academic Introduction (1-2 sentences)
-   - Table Title (SPSS/APA format: "Table 4.1: ...")
-   - Table Narrative Interpretation
-   - Figure Title (if chart exists)
-   - Figure Interpretation
-   - Hypothesis Decision (if linked)
+2. **Auto-generated hypothesis components per HypothesisCard:**
+   - H0 statement (auto-generated from H1 using templates)
+   - H1 statement (user-entered, becomes the basis)
+   - Direction selector (two-tailed default, one-tailed option)
+   - Required assumptions list (auto-populated based on recommended test)
+   - Effect size declaration (small/medium/large expected)
+   - Post-hoc requirement flag (if 3+ groups detected)
 
-3. **Generate All vs. Generate Per Block**
-   - "Generate All" for complete Chapter Four
-   - Individual generate buttons per section
+3. **Progression gate:** Block "Next" if no valid hypothesis is added. Show validation panel listing what is missing.
 
-#### Backend Writing Logic Library (Critical)
-
-Each test MUST have unique writing logic:
-
-```
-Writing Logic Templates (in interpret-results/index.ts):
-
-frequencies:
-  - Intro: "The demographic characteristics of the sample..."
-  - Required stats: n, %, valid %
-  - Forbidden: Mean, SD (unless numeric)
-  - Pattern: "The majority of participants were [category] (n = X, X%)..."
-
-descriptives:
-  - Intro: "Descriptive statistics were computed..."
-  - Required stats: M, SD, Min, Max
-  - Pattern: "The mean score for [variable] was M = X.XX (SD = X.XX)..."
-
-cronbach-alpha:
-  - Intro: "Internal consistency reliability was assessed..."
-  - Required stats: alpha, N items
-  - Forbidden: Mean, correlation
-  - Pattern: "Cronbach's alpha indicated [excellent/good/...] reliability (α = .XX)..."
-
-independent-t-test:
-  - Intro: "An independent-samples t-test was conducted..."
-  - Required: M1, M2, SD1, SD2, t, df, p, d
-  - Hypothesis: "The results [supported/did not support] H1..."
-  - Assumption mention mandatory
-
-paired-t-test:
-  - Intro: "A paired-samples t-test examined..."
-  - Required: M_pre, M_post, t, df, p, d
-  - Pattern: "There was a significant [increase/decrease]..."
-
-one-way-anova:
-  - Intro: "A one-way ANOVA was conducted..."
-  - Required: F, df1, df2, p, eta-squared
-  - Post-hoc: "Tukey post-hoc tests revealed..."
-  - Assumption mention mandatory
-
-pearson:
-  - Intro: "Pearson product-moment correlation..."
-  - Required: r, p, N
-  - Pattern: "There was a [weak/moderate/strong] [positive/negative] correlation..."
-
-spearman:
-  - Intro: "Spearman's rank-order correlation..."
-  - Required: rs, p, N
-  - Note: Non-parametric justification
-
-kendall-tau:
-  - Intro: "Kendall's tau-b was computed..."
-  - Required: tau, p
-
-linear-regression:
-  - Intro: "Simple linear regression was performed..."
-  - Required: R-squared, F, B, SE, t, p
-  - Pattern: "[Variable] significantly predicted [outcome]..."
-
-multiple-regression:
-  - Intro: "Multiple regression analysis examined..."
-  - Required: R, R-squared, adjusted R-squared, F, coefficients
-  - Model equation interpretation
-
-logistic-regression:
-  - Intro: "Binary logistic regression examined..."
-  - Required: Chi-square, -2LL, Nagelkerke R-squared, OR
-  - Pattern: "The odds of [outcome] were X times higher..."
-
-efa:
-  - Intro: "Exploratory factor analysis with varimax rotation..."
-  - Required: KMO, Bartlett's chi-square, factors extracted, variance explained
-  - Pattern: "X factors were extracted, accounting for X% of variance..."
-```
-
-#### Hypothesis Decision Language
-
-```
-If p < alpha (typically 0.05):
-  "The results support H1, indicating that [restate finding]."
-
-If p >= alpha:
-  "The results do not support H1; no significant [difference/relationship/effect] was found."
-```
+4. **Statistical recommendation panel:** For each hypothesis, show the recommended test with reasoning chain (e.g., "DV is scale + IV has 2 groups + normality likely = Independent T-Test recommended").
 
 ---
 
-### Step 7: Report Assembly & Export (Professional Output)
+## ISSUE 2: Academic Production (Steps 11-13)
 
-**Files:**
-- `src/components/spss-editor/Step7Export.tsx` (Major Enhancement)
-- `supabase/functions/generate-report/index.ts` (Major Enhancement)
+### Current State of Steps 11-13
 
-#### Frontend Component
-
-1. **Chapter Structure Preview**
-   - Show report structure:
-     ```
-     CHAPTER FOUR: RESULTS
-       4.1 Preliminary Analyses
-         4.1.1 Data Screening
-         4.1.2 Descriptive Statistics
-       4.2 Reliability Analysis
-       4.3 Hypothesis Testing
-         4.3.1 Hypothesis 1
-         4.3.2 Hypothesis 2
-     ```
-
-2. **Section Selection**
-   - Toggle sections on/off
-   - Reorder sections via drag-drop
-
-3. **Table/Figure Numbering Preview**
-   - Show: "Table 4.1", "Table 4.2", "Figure 4.1"
-   - Auto-numbered based on chapter
-
-4. **Export Formats**
-   - Word (.docx) - Native tables, proper formatting
-   - PDF - Print-ready with pagination
-   - (Both Pro only)
-
-5. **Formatting Options**
-   - Font: Times New Roman (default)
-   - Table font size: 10pt
-   - Body font size: 12pt
-   - APA/Custom style toggle
-
-#### Backend Report Generation
-
-Implement proper Word generation:
-
-```
-Use docx library for Deno:
-- Native Word tables (not HTML converted)
-- Proper heading styles
-- Table captions ABOVE tables
-- Figure captions BELOW figures
-- Table notes under each table
-- Auto-numbering: Table 4.1, Figure 4.1
-
-Structure:
-1. Title page (optional)
-2. Chapter heading
-3. For each analysis block:
-   - Section heading
-   - Academic introduction
-   - Table with caption
-   - Narrative interpretation
-   - Figure with caption (if applicable)
-   - Hypothesis decision (if applicable)
-4. Summary section
-```
+All three are empty placeholder components with just an icon and "Coming in Phase X" text. No database tables exist for chapter storage, citations, or exports.
 
 ---
 
-## Phase 3: Additional Components
+### Database Migrations Required
 
-### 3.1 Supervisor Mode Toggle
+**New tables:**
 
-**File: `src/components/spss-editor/SupervisorMode.tsx` (New)**
+1. `chapter_results` -- Stores generated Chapter 4 content
+   - id (uuid, PK), analysis_id (uuid, FK), full_text (text), section_mapping (jsonb), version (int default 1), created_at, updated_at
 
-Toggle in Step 5/6/7 that when enabled:
-- Uses conservative language
-- Includes all assumption checks explicitly
-- Adds confidence intervals everywhere
-- Avoids strong causal claims
-- Increases reporting depth
+2. `discussion_chapter` -- Stores generated Chapter 5 content
+   - id (uuid, PK), analysis_id (uuid, FK), chapter5_text (text), mode (text: free/pro), theory_input (jsonb), citations_used (jsonb), version (int default 1), created_at, updated_at
 
-### 3.2 Style Profile Selector
+3. `citations` -- Reference management
+   - id (uuid, PK), analysis_id (uuid), author (text), year (text), title (text), journal (text), doi (text), formatted_reference (text), created_at
 
-**File: `src/components/spss-editor/StyleProfile.tsx` (New)**
+4. `thesis_exports` -- Export tracking
+   - id (uuid, PK), analysis_id (uuid), user_id (uuid), export_type (text), version (int), file_url (text), created_at
 
-Dropdown for:
-- APA 7th Edition (default)
-- University Custom (placeholder for future)
-
-Controls:
-- Table caption format
-- Figure caption format
-- Statistical notation preferences
-
-### 3.3 Audit Trail
-
-**File: `src/hooks/useAuditTrail.ts` (New)**
-
-Track for each analysis:
-- Selected test
-- Variable configuration
-- Assumption status
-- Effect size calculated
-- Hypothesis decision
-
-Store in database for review/export.
+All tables will have RLS policies scoped through analyses -> projects -> user_id chain.
 
 ---
 
-## Phase 4: Edge Function Enhancements
+### Step 11 -- Academic Results Generator (Chapter 4)
 
-### 4.1 run-analysis/index.ts Additions
+**File:** `src/components/spss-editor/Step11AcademicResults.tsx` (full rewrite)
 
-New tests to implement:
-- one-sample-t-test
-- two-way-anova
-- repeated-measures-anova
-- kruskal-wallis (with Dunn's post-hoc)
-- friedman (with pairwise Wilcoxon)
-- kendall-tau
-- simple-linear-regression
-- multiple-regression
-- logistic-regression
-- kmo-bartlett
-- efa
+**5 Internal Engines (all client-side aggregation + AI formatting via edge function):**
 
-Each test must return:
-- Tables array
-- Charts array
-- Effect sizes
-- Confidence intervals
-- Assumption results (integrated)
+1. **Results Aggregation Engine** -- Fetch all `analysis_blocks`, `hypotheses`, assumption results from database. No recalculation.
 
-### 4.2 check-assumptions/index.ts Enhancements
+2. **Structured Chapter Constructor** -- Build sections 4.1 through 4.10 (Sample Description, Measurement Model, Descriptive Statistics, Reliability, Correlation, Regression, Hypothesis Testing, Diagnostics, Integrated Findings, Summary). Map analysis blocks to sections by test_category.
 
-Add:
-- Sphericity test (Mauchly's) for repeated measures
-- Multicollinearity check (VIF) for regression
-- Independence test
-- Linearity check for regression
+3. **Table and Figure Insertion Engine** -- Auto-number all tables and figures. Insert under correct sections. Render from stored JSON data.
 
-### 4.3 interpret-results/index.ts Enhancements
+4. **Academic Writing Engine** -- Edge function `generate-chapter4` that takes aggregated results and produces formal APA-7 narrative per section. Template-based for statistics, AI for connecting prose.
 
-Complete per-test writing logic library as detailed in Step 6.
+5. **Integrated Intelligence Layer** -- Cross-reference descriptive to inferential, reliability to regression, correlation to regression strength. Generate connecting paragraphs.
 
-### 4.4 generate-report/index.ts Rebuild
+**UI Components:**
+- Overview panel showing saved status per analysis step
+- "Generate Chapter 4" button
+- Rich text preview (read-only with edit toggle)
+- Export Word / Save Draft buttons
 
-Implement proper Word document generation with:
-- docx library
-- Native Word tables
-- APA formatting
-- Auto-numbering
+**Edge function:** `supabase/functions/generate-chapter4/index.ts`
 
 ---
 
-## Summary: Files to Create/Modify
+### Step 12 -- Theoretical Intelligence Engine (Chapter 5)
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/hooks/useAnalysisWizard.ts` | Major Modify | New interfaces, analysis blocks |
-| `src/components/spss-editor/Step2Variables.tsx` | Complete Rebuild | Full SPSS Variable View |
-| `src/components/spss-editor/Step3Research.tsx` | Complete Rebuild | Hypothesis builder |
-| `src/components/spss-editor/Step4Selection.tsx` | Complete Rebuild | Analysis blocks, guided UI |
-| `src/components/spss-editor/Step5Results.tsx` | Complete Rebuild | Per-block results, assumptions |
-| `src/components/spss-editor/Step6Interpretation.tsx` | Major Modify | Per-block writing |
-| `src/components/spss-editor/Step7Export.tsx` | Major Modify | Chapter structure |
-| `src/components/spss-editor/SupervisorMode.tsx` | New | Conservative mode toggle |
-| `src/components/spss-editor/StyleProfile.tsx` | New | APA style selector |
-| `src/components/spss-editor/VariableRoleEditor.tsx` | New | Role assignment |
-| `src/components/spss-editor/ValueLabelsEditor.tsx` | New | Value labels dialog |
-| `src/components/spss-editor/HypothesisCard.tsx` | New | Hypothesis UI component |
-| `src/components/spss-editor/AnalysisBlockCard.tsx` | New | Block configuration UI |
-| `src/components/spss-editor/AssumptionPanel.tsx` | New | Assumption display |
-| `src/components/spss-editor/EffectSizeDisplay.tsx` | New | Effect size card |
-| `src/hooks/useAuditTrail.ts` | New | Audit logging |
-| `supabase/functions/run-analysis/index.ts` | Major Modify | Add 11 new tests |
-| `supabase/functions/check-assumptions/index.ts` | Modify | Add sphericity, VIF |
-| `supabase/functions/interpret-results/index.ts` | Major Modify | Per-test writing logic |
-| `supabase/functions/generate-report/index.ts` | Complete Rebuild | Word/PDF generation |
+**File:** `src/components/spss-editor/Step12Theoretical.tsx` (full rewrite)
+
+**6 Internal Engines:**
+
+1. **Findings Synthesis** -- Summarize supported/rejected hypotheses, strongest predictors, model power
+2. **Theoretical Integration** -- Free mode: simplified interpretation. PRO mode: user inputs theory name, description, prior references; AI connects findings to theory
+3. **Citation System** -- APA-7 in-text citation formatting, reference list generation, manual citation entry (PRO)
+4. **Unexpected Results Analyzer** -- Auto-detect rejected hypotheses, weak effects, low R-squared; generate academic explanations
+5. **Practical Implications** -- Translate findings to actionable recommendations
+6. **Limitations and Future Research** -- Auto-generate based on sample size, design type, model limitations
+
+**UI Components:**
+- Mode selector (Free / PRO)
+- Theory input panel (PRO only): theory name, description, key constructs, references
+- "Generate Chapter 5" button
+- Editable rich text editor with locked structure
+- Advisory intelligence panel (strength/weakness indicators)
+
+**Edge function:** `supabase/functions/generate-chapter5/index.ts`
 
 ---
 
-## Confirmation of Requirements Coverage
+### Step 13 -- Thesis Binder
 
-| Requirement | Covered | Implementation Location |
-|-------------|---------|------------------------|
-| Project name mandatory | Yes | Step 1 |
-| Variable roles (ID, DV, IV, etc.) | Yes | Step 2 |
-| Value labels editor | Yes | Step 2 |
-| Scale item grouping | Yes | Step 2 |
-| AI variable detection | Yes | Step 2 (Pro) |
-| Hypothesis builder with H1, H2... | Yes | Step 3 |
-| Hypothesis type (difference, association, prediction) | Yes | Step 3 |
-| Hypothesis linked to variables | Yes | Step 3 |
-| AI hypothesis suggestions | Yes | Step 3 (Pro) |
-| All 24 statistical tests | Yes | Step 4/5 |
-| Analysis blocks architecture | Yes | Step 4 |
-| Linked to hypothesis | Yes | Step 4 |
-| Guided UI recommendations | Yes | Step 4 |
-| Disable invalid tests | Yes | Step 4 |
-| Block progression when invalid | Yes | Step 4 |
-| SPSS-style tables per block | Yes | Step 5 |
-| Assumption checking integrated | Yes | Step 5 |
-| Effect sizes mandatory | Yes | Step 5 |
-| Post-hoc auto-trigger | Yes | Step 5 |
-| No mixed tables | Yes | Step 5 |
-| Per-test writing logic | Yes | Step 6 |
-| Section heading | Yes | Step 6 |
-| Table title (APA) | Yes | Step 6 |
-| Figure title/interpretation | Yes | Step 6 |
-| Hypothesis decision language | Yes | Step 6 |
-| Academic doctoral tone | Yes | Step 6 |
-| No AI meta-language | Yes | Step 6 |
-| Chapter Four structure | Yes | Step 7 |
-| Auto-numbered tables/figures | Yes | Step 7 |
-| Word native tables | Yes | Step 7 |
-| Times New Roman formatting | Yes | Step 7 |
-| Table captions above | Yes | Step 7 |
-| Figure captions below | Yes | Step 7 |
-| Supervisor mode | Yes | Toggle component |
-| APA 7th edition style | Yes | Style profile |
-| Audit trail | Yes | Audit hook |
+**File:** `src/components/spss-editor/Step13ThesisBinder.tsx` (full rewrite)
+
+**Engines:**
+1. **Data Aggregation** -- Fetch chapter_results + discussion_chapter + citations
+2. **Document Structure** -- Title page, TOC, List of Tables, List of Figures, Chapter 4, Chapter 5, References
+3. **Professional Formatting** -- Times New Roman 12pt, 1.5/2.0 spacing, 1-inch margins, auto page numbering
+4. **Table/Figure Injection** -- Insert all stored tables and figures with captions and auto-numbering
+5. **Citation Integration** -- Insert reference list in APA-7 format (PRO only)
+
+**Free vs PRO:**
+- Free: Partial export, watermark footer, no PDF
+- PRO: Full export, no watermark, PDF enabled, full references
+
+**UI:** Preview panel, Export Word button, Export PDF button (PRO), Save metadata to thesis_exports table
+
+**Edge function:** `supabase/functions/generate-thesis-doc/index.ts` (Word/PDF generation)
 
 ---
 
-n addition to the current plan, enforce the following mandatory academic rules:
+## Technical Details
 
-1️⃣ Separate Narrative per Output Type
-For every Analysis Block:
+### Files to Create (New)
+| File | Purpose |
+|------|---------|
+| `src/components/spss-editor/DataQualitySummary.tsx` | Data quality panel for Step 1 |
+| `src/components/spss-editor/VariableIntelligencePanel.tsx` | Confidence indicators and validation for Step 2 |
+| `src/components/spss-editor/StatisticalDecisionEngine.tsx` | Decision logic for Step 3 |
+| `supabase/functions/generate-chapter4/index.ts` | AI chapter 4 generation |
+| `supabase/functions/generate-chapter5/index.ts` | AI chapter 5 generation |
+| `supabase/functions/generate-thesis-doc/index.ts` | Document compilation and export |
 
-Table Interpretation MUST be a standalone paragraph
+### Files to Modify
+| File | Changes |
+|------|---------|
+| `src/components/spss-editor/Step1Upload.tsx` | Add DataQualitySummary after file preview |
+| `src/components/spss-editor/Step2Variables.tsx` | Add confidence indicators, scale validation, DV/IV consistency checks |
+| `src/components/spss-editor/Step3Research.tsx` | Integrate StatisticalDecisionEngine, auto H0 generation, progression gate |
+| `src/components/spss-editor/HypothesisCard.tsx` | Add H0 field, direction selector, assumptions list, effect size declaration |
+| `src/components/spss-editor/Step11AcademicResults.tsx` | Full rewrite from placeholder |
+| `src/components/spss-editor/Step12Theoretical.tsx` | Full rewrite from placeholder |
+| `src/components/spss-editor/Step13ThesisBinder.tsx` | Full rewrite from placeholder |
+| `supabase/functions/detect-variables/index.ts` | Add confidence scores and granular sub-types |
+| `src/pages/dashboard/NewAnalysis.tsx` | Update Step 3 progression gate, pass new props to Steps 11-13 |
+| `src/hooks/useAnalysisWizard.ts` | Add chapter/citation state management |
+| `supabase/config.toml` | Register new edge functions |
 
-Figure Interpretation MUST be a separate paragraph
+### Database Migration
+One migration creating 4 new tables: `chapter_results`, `discussion_chapter`, `citations`, `thesis_exports` with appropriate RLS policies.
 
-Never merge table and figure interpretation into one narrative
-
-2️⃣ Questionnaire Item Referencing
-When variables originate from a questionnaire:
-
-Narrative must explicitly reference item ranges (e.g., Q12–Q18)
-
-Reliability sections must state number of items and construct name
-
-Descriptive sections must reference scale origin
-
-3️⃣ Assumption Narrative Writing (Academic)
-In Step 6 writing engine:
-
-Each inferential test must include a short academic paragraph stating:
-
-Whether assumptions were met
-
-Which assumption tests were used
-
-Any corrective action (e.g., non-parametric switch)
-
-These rules apply to all APA, Full Results, and Supervisor Mode outputs.                           ## Implementation Priority
-
-**Week 1-2: Core Architecture**
-1. Enhanced WizardState and database schema
-2. Step 2 rebuild (Variable View with roles)
-3. Step 3 rebuild (Hypothesis builder)
-
-**Week 3-4: Analysis Engine**
-4. Step 4 rebuild (Analysis blocks, guided UI)
-5. Add missing statistical tests to backend
-
-**Week 5-6: Results & Writing**
-6. Step 5 rebuild (Per-block results, assumptions)
-7. Step 6 enhance (Per-test writing logic)
-
-**Week 7-8: Export & Polish**
-8. Step 7 rebuild (Word/PDF generation)
-9. Supervisor mode, audit trail
-10. Testing and refinement
+### Implementation Order
+1. Database migration (4 new tables)
+2. Step 1 Data Quality Summary (client-side, no backend)
+3. Step 2 Variable Intelligence (enhance detect-variables edge function + client validation)
+4. Step 3 Statistical Decision Engine (client-side decision logic + HypothesisCard enhancements)
+5. Step 11 Academic Results Generator (edge function + full UI)
+6. Step 12 Theoretical Intelligence Engine (edge function + full UI)
+7. Step 13 Thesis Binder (edge function + full UI)
 
