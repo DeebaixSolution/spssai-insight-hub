@@ -26,6 +26,7 @@ import { Variable, ParsedDataset } from '@/hooks/useAnalysisWizard';
 import { VariableRole, VariableMeasure } from '@/types/analysis';
 import { usePlanLimits } from '@/hooks/usePlanLimits';
 import { PlanGate } from '@/components/plan/PlanGate';
+import { VariableIntelligencePanel } from './VariableIntelligencePanel';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -469,15 +470,8 @@ export function Step2Variables({
         </ScrollArea>
       </div>
 
-      {/* Validation Warnings */}
-      {roleCounts['dependent'] === 0 && (
-        <Alert>
-          <Users className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Tip:</strong> Assign at least one <strong>Dependent Variable (DV)</strong> role for inferential statistical tests.
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Variable Intelligence Panel */}
+      <VariableIntelligencePanel variables={variables} parsedData={parsedData} />
 
       {/* Value Labels Dialog */}
       <Dialog open={valueLabelsOpen} onOpenChange={setValueLabelsOpen}>
