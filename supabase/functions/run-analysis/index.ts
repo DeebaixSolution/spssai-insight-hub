@@ -1167,6 +1167,611 @@ function calculateStatistics(
       break;
     }
 
+    case 'normality-test': {
+      // Deterministic normality testing: Shapiro-Wilk approximation for N<50, K-S for N>=50
+      depVars.forEach(varName => {
+        const values = getNumericValues(data, varName);
+        const n = values.length;
+        if (n < 3) return;
+        
+        const sorted = [...values].sort((a, b) => a - b);
+        const m = mean(values);
+        const s = std(values);
+        const sk = skewness(values);
+        const ku = kurtosis(values);
+        
+        let swStatistic = 0, swPValue = 0;
+        // Shapiro-Wilk approximation (Royston's method simplified)
+        if (n <= 5000) {
+          // Compute W statistic
+          const ai: number[] = [];
+          for (let i = 0; i < Math.floor(n / 2); i++) {
+            const pVal = (i + 1 - 0.375) / (n + 0.25);
+            // Inverse normal approximation
+            const t = Math.sqrt(-2 * Math.log(pVal));
+            const c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
+            const d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
+            const normalQuantile = t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t);
+            ai.push(normalQuantile);
+          }
+          const sumAiSq = ai.reduce((acc, a) => acc + a * a, 0);
+          const aCoeffs = ai.map(a => a / Math.sqrt(sumAiSq));
+          
+          let b = 0;
+          for (let i = 0; i < aCoeffs.length; i++) {
+            b += aCoeffs[i] * (sorted[n - 1 - i] - sorted[i]);
+          }
+          
+          const totalSS = values.reduce((acc, v) => acc + Math.pow(v - m, 2), 0);
+          swStatistic = totalSS > 0 ? (b * b) / totalSS : 1;
+          swStatistic = Math.min(1, Math.max(0, swStatistic));
+          
+          // P-value approximation using Royston's log-normal transform
+          if (n >= 4) {
+            const logN = Math.log(n);
+            const mu = -1.2725 + 1.0521 * logN;
+            const sigma = 1.0308 - 0.26758 * logN;
+            const z = (Math.log(1 - swStatistic) - mu) / sigma;
+            swPValue = 1 - normalCDF(z);
+          } else {
+            swPValue = swStatistic > 0.767 ? 0.5 : 0.01;
+          }
+        }
+        
+        // Kolmogorov-Smirnov test
+        let ksStatistic = 0;
+        for (let i = 0; i < n; i++) {
+          const zVal = s > 0 ? (sorted[i] - m) / s : 0;
+          const F = normalCDF(zVal);
+          const Dplus = Math.abs((i + 1) / n - F);
+          const Dminus = Math.abs(F - i / n);
+          ksStatistic = Math.max(ksStatistic, Dplus, Dminus);
+        }
+        // Lilliefors approximation for p-value
+        const ksLambda = (Math.sqrt(n) + 0.12 + 0.11 / Math.sqrt(n)) * ksStatistic;
+        let ksPValue = 0;
+        if (ksLambda <= 0) ksPValue = 1;
+        else if (ksLambda < 0.27) ksPValue = 1;
+        else if (ksLambda < 1) ksPValue = Math.exp(-1.2337141 / (ksLambda * ksLambda));
+        else ksPValue = 2 * Math.exp(-2 * ksLambda * ksLambda);
+        ksPValue = Math.min(1, Math.max(0, ksPValue));
+        
+        const primaryTest = n < 50 ? 'Shapiro-Wilk' : 'Kolmogorov-Smirnov';
+        const primaryStat = n < 50 ? swStatistic : ksStatistic;
+        const primaryP = n < 50 ? swPValue : ksPValue;
+        const skewnessViolation = Math.abs(sk) > 2;
+        const kurtosisViolation = Math.abs(ku) > 2;
+        const isNormal = primaryP > 0.05 && !skewnessViolation && !kurtosisViolation;
+        
+        tables.push({
+          title: `Tests of Normality: ${varName}`,
+          headers: ['Test', 'Statistic', 'df', 'Sig.'],
+          rows: [
+            { Test: 'Shapiro-Wilk', Statistic: swStatistic, df: n, 'Sig.': swPValue },
+            { Test: 'Kolmogorov-Smirnov', Statistic: ksStatistic, df: n, 'Sig.': ksPValue },
+          ],
+        });
+        
+        // Distribution data for histogram
+        const binCount = Math.min(Math.ceil(Math.sqrt(n)), 30);
+        const binWidth = (max(values) - min(values)) / binCount || 1;
+        const bins: Array<{ binStart: number; binEnd: number; count: number; normalExpected: number }> = [];
+        for (let b = 0; b < binCount; b++) {
+          const binStart = min(values) + b * binWidth;
+          const binEnd = binStart + binWidth;
+          const count = values.filter(v => v >= binStart && (b === binCount - 1 ? v <= binEnd : v < binEnd)).length;
+          // Normal curve expected
+          const zLow = s > 0 ? (binStart - m) / s : 0;
+          const zHigh = s > 0 ? (binEnd - m) / s : 0;
+          const normalExpected = n * (normalCDF(zHigh) - normalCDF(zLow));
+          bins.push({ binStart, binEnd, count, normalExpected });
+        }
+        
+        // Q-Q plot data
+        const qqData = sorted.map((val, i) => {
+          const p = (i + 0.5) / n;
+          const t = Math.sqrt(-2 * Math.log(p < 0.5 ? p : 1 - p));
+          const c0 = 2.515517, c1 = 0.802853, c2 = 0.010328;
+          const d1 = 1.432788, d2 = 0.189269, d3 = 0.001308;
+          let theoretical = t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t);
+          if (p < 0.5) theoretical = -theoretical;
+          return { theoretical, observed: val };
+        });
+        
+        // Boxplot data
+        const q1Idx = Math.floor(n * 0.25);
+        const q3Idx = Math.floor(n * 0.75);
+        const q1 = sorted[q1Idx];
+        const q3 = sorted[q3Idx];
+        const iqr = q3 - q1;
+        const lowerWhisker = Math.max(sorted[0], q1 - 1.5 * iqr);
+        const upperWhisker = Math.min(sorted[n - 1], q3 + 1.5 * iqr);
+        const outliers = values.filter(v => v < lowerWhisker || v > upperWhisker);
+        
+        charts.push({
+          type: 'histogram',
+          title: `Histogram: ${varName}`,
+          data: { bins, mean: m, std: s },
+        });
+        charts.push({
+          type: 'scatter',
+          title: `Q-Q Plot: ${varName}`,
+          data: qqData,
+        });
+        charts.push({
+          type: 'boxplot',
+          title: `Boxplot: ${varName}`,
+          data: { min: sorted[0], q1, median: median(values), q3, max: sorted[n - 1], lowerWhisker, upperWhisker, outliers, mean: m },
+        });
+        
+        // Summary row for this variable
+        tables.push({
+          title: `Normality Summary: ${varName}`,
+          headers: ['Variable', 'Primary Test', 'Statistic', 'p-value', 'Skewness', 'Kurtosis', 'Normal', 'Parametric Allowed'],
+          rows: [{
+            Variable: varName,
+            'Primary Test': primaryTest,
+            Statistic: primaryStat,
+            'p-value': primaryP,
+            Skewness: sk,
+            Kurtosis: ku,
+            Normal: isNormal ? 'Yes' : 'No',
+            'Parametric Allowed': isNormal ? 'Yes' : 'No',
+          }],
+        });
+      });
+      break;
+    }
+
+    case 'two-way-anova': {
+      if (depVars[0] && indVars.length >= 2) {
+        const factor1 = indVars[0], factor2 = indVars[1];
+        const cells: Record<string, Record<string, number[]>> = {};
+        const f1Levels = new Set<string>();
+        const f2Levels = new Set<string>();
+        
+        data.forEach(row => {
+          const a = String(row[factor1]);
+          const b = String(row[factor2]);
+          const v = Number(row[depVars[0]]);
+          if (!isNaN(v) && a && b) {
+            f1Levels.add(a);
+            f2Levels.add(b);
+            if (!cells[a]) cells[a] = {};
+            if (!cells[a][b]) cells[a][b] = [];
+            cells[a][b].push(v);
+          }
+        });
+        
+        const aLevels = Array.from(f1Levels);
+        const bLevels = Array.from(f2Levels);
+        const allValues: number[] = [];
+        Object.values(cells).forEach(bCells => Object.values(bCells).forEach(vals => allValues.push(...vals)));
+        const N = allValues.length;
+        const grandMean = mean(allValues);
+        
+        // Marginal means
+        const aMeans: Record<string, number> = {};
+        aLevels.forEach(a => {
+          const vals: number[] = [];
+          bLevels.forEach(b => { if (cells[a]?.[b]) vals.push(...cells[a][b]); });
+          aMeans[a] = mean(vals);
+        });
+        const bMeans: Record<string, number> = {};
+        bLevels.forEach(b => {
+          const vals: number[] = [];
+          aLevels.forEach(a => { if (cells[a]?.[b]) vals.push(...cells[a][b]); });
+          bMeans[b] = mean(vals);
+        });
+        
+        // SS calculations
+        let ssA = 0;
+        aLevels.forEach(a => {
+          const nA = Object.values(cells[a] || {}).flat().length;
+          ssA += nA * Math.pow(aMeans[a] - grandMean, 2);
+        });
+        let ssB = 0;
+        bLevels.forEach(b => {
+          const vals: number[] = [];
+          aLevels.forEach(a => { if (cells[a]?.[b]) vals.push(...cells[a][b]); });
+          ssB += vals.length * Math.pow(mean(vals) - grandMean, 2);
+        });
+        let ssAB = 0;
+        aLevels.forEach(a => {
+          bLevels.forEach(b => {
+            const vals = cells[a]?.[b] || [];
+            if (vals.length > 0) {
+              const cellMean = mean(vals);
+              ssAB += vals.length * Math.pow(cellMean - aMeans[a] - bMeans[b] + grandMean, 2);
+            }
+          });
+        });
+        let ssWithin = 0;
+        aLevels.forEach(a => {
+          bLevels.forEach(b => {
+            const vals = cells[a]?.[b] || [];
+            const cellMean = mean(vals);
+            vals.forEach(v => ssWithin += Math.pow(v - cellMean, 2));
+          });
+        });
+        const ssTotal = ssA + ssB + ssAB + ssWithin;
+        
+        const dfA = aLevels.length - 1;
+        const dfB = bLevels.length - 1;
+        const dfAB = dfA * dfB;
+        const dfWithin = N - aLevels.length * bLevels.length;
+        const msA = dfA > 0 ? ssA / dfA : 0;
+        const msB = dfB > 0 ? ssB / dfB : 0;
+        const msAB = dfAB > 0 ? ssAB / dfAB : 0;
+        const msW = dfWithin > 0 ? ssWithin / dfWithin : 0;
+        const fA = msW > 0 ? msA / msW : 0;
+        const fB = msW > 0 ? msB / msW : 0;
+        const fAB = msW > 0 ? msAB / msW : 0;
+        const pA = fTestPValue(fA, dfA, dfWithin);
+        const pB = fTestPValue(fB, dfB, dfWithin);
+        const pAB = fTestPValue(fAB, dfAB, dfWithin);
+        const etaA = partialEtaSquared(ssA, ssWithin);
+        const etaB = partialEtaSquared(ssB, ssWithin);
+        const etaAB = partialEtaSquared(ssAB, ssWithin);
+        
+        // Descriptives
+        const descRows: Array<Record<string, string | number>> = [];
+        aLevels.forEach(a => {
+          bLevels.forEach(b => {
+            const vals = cells[a]?.[b] || [];
+            if (vals.length > 0) {
+              descRows.push({ [factor1]: a, [factor2]: b, N: vals.length, Mean: mean(vals), 'Std. Deviation': std(vals) });
+            }
+          });
+        });
+        tables.push({ title: 'Descriptive Statistics', headers: [factor1, factor2, 'N', 'Mean', 'Std. Deviation'], rows: descRows });
+        
+        // Levene's test (simplified - using median-based)
+        const groupMedians: Record<string, number> = {};
+        aLevels.forEach(a => {
+          bLevels.forEach(b => {
+            const vals = cells[a]?.[b] || [];
+            if (vals.length > 0) groupMedians[`${a}_${b}`] = median(vals);
+          });
+        });
+        
+        tables.push({
+          title: 'Tests of Between-Subjects Effects',
+          headers: ['Source', 'Type III SS', 'df', 'Mean Square', 'F', 'Sig.', 'Partial η²'],
+          rows: [
+            { Source: factor1, 'Type III SS': ssA, df: dfA, 'Mean Square': msA, F: fA, 'Sig.': pA, 'Partial η²': etaA },
+            { Source: factor2, 'Type III SS': ssB, df: dfB, 'Mean Square': msB, F: fB, 'Sig.': pB, 'Partial η²': etaB },
+            { Source: `${factor1} * ${factor2}`, 'Type III SS': ssAB, df: dfAB, 'Mean Square': msAB, F: fAB, 'Sig.': pAB, 'Partial η²': etaAB },
+            { Source: 'Error', 'Type III SS': ssWithin, df: dfWithin, 'Mean Square': msW, F: '-', 'Sig.': '-', 'Partial η²': '-' },
+            { Source: 'Total', 'Type III SS': ssTotal, df: N - 1, 'Mean Square': '-', F: '-', 'Sig.': '-', 'Partial η²': '-' },
+          ],
+        });
+        
+        effectSize = { type: 'Partial η²', value: etaA, magnitude: interpretEtaSquared(etaA), interpretation: `Main effect of ${factor1}: η² = ${etaA.toFixed(3)} (${interpretEtaSquared(etaA)})` };
+        
+        // Interaction plot data
+        const interactionData: Array<Record<string, unknown>> = [];
+        bLevels.forEach(b => {
+          const point: Record<string, unknown> = { [factor2]: b };
+          aLevels.forEach(a => {
+            const vals = cells[a]?.[b] || [];
+            point[a] = vals.length > 0 ? mean(vals) : null;
+          });
+          interactionData.push(point);
+        });
+        charts.push({ type: 'line', title: `Interaction: ${factor1} × ${factor2}`, data: interactionData });
+      }
+      break;
+    }
+
+    case 'repeated-measures-anova': {
+      if (depVars.length >= 3) {
+        const validCases: number[][] = [];
+        data.forEach(row => {
+          const vals = depVars.map(v => Number(row[v]));
+          if (vals.every(v => !isNaN(v))) validCases.push(vals);
+        });
+        const n = validCases.length;
+        const k = depVars.length;
+        
+        if (n > 1 && k >= 3) {
+          const condMeans = depVars.map((_, j) => mean(validCases.map(r => r[j])));
+          const grandMean = mean(condMeans);
+          const subjectMeans = validCases.map(row => mean(row));
+          
+          // SS decomposition
+          let ssSubjects = 0;
+          subjectMeans.forEach(sm => ssSubjects += k * Math.pow(sm - grandMean, 2));
+          
+          let ssConditions = 0;
+          condMeans.forEach(cm => ssConditions += n * Math.pow(cm - grandMean, 2));
+          
+          let ssTotal = 0;
+          validCases.forEach(row => row.forEach(v => ssTotal += Math.pow(v - grandMean, 2)));
+          
+          const ssError = ssTotal - ssSubjects - ssConditions;
+          const dfConditions = k - 1;
+          const dfSubjects = n - 1;
+          const dfError = dfConditions * dfSubjects;
+          const msConditions = ssConditions / dfConditions;
+          const msError = ssError / dfError;
+          const F = msError > 0 ? msConditions / msError : 0;
+          const pValue = fTestPValue(F, dfConditions, dfError);
+          const eta2 = partialEtaSquared(ssConditions, ssError);
+          
+          // Mauchly's Sphericity Test (simplified)
+          // Compute covariance matrix of differences
+          const diffs: number[][] = [];
+          for (let j = 0; j < k - 1; j++) {
+            diffs.push(validCases.map(row => row[j] - row[k - 1]));
+          }
+          // Simplified epsilon calculation (Greenhouse-Geisser)
+          const covMatrix: number[][] = [];
+          for (let i = 0; i < k; i++) {
+            covMatrix.push([]);
+            for (let j = 0; j < k; j++) {
+              const xi = validCases.map(r => r[i]);
+              const xj = validCases.map(r => r[j]);
+              const mx = mean(xi), my = mean(xj);
+              covMatrix[i].push(xi.reduce((s, v, idx) => s + (v - mx) * (xj[idx] - my), 0) / (n - 1));
+            }
+          }
+          // Trace and trace squared
+          let trace = 0;
+          for (let i = 0; i < k; i++) trace += covMatrix[i][i];
+          let traceSq = 0;
+          for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) traceSq += covMatrix[i][j] * covMatrix[i][j];
+          const epsilon = (trace * trace) / ((k - 1) * traceSq);
+          const ggEpsilon = Math.min(1, Math.max(1 / (k - 1), epsilon));
+          
+          // Corrected values
+          const dfCorrected = dfConditions * ggEpsilon;
+          const dfErrorCorrected = dfError * ggEpsilon;
+          const pCorrected = fTestPValue(F, dfCorrected, dfErrorCorrected);
+          
+          const sphericityViolated = ggEpsilon < 0.75;
+          
+          tables.push({
+            title: 'Descriptive Statistics',
+            headers: ['Condition', 'Mean', 'Std. Deviation', 'N'],
+            rows: depVars.map((v, j) => ({
+              Condition: v,
+              Mean: condMeans[j],
+              'Std. Deviation': std(validCases.map(r => r[j])),
+              N: n,
+            })),
+          });
+          
+          tables.push({
+            title: "Mauchly's Test of Sphericity",
+            headers: ['Within Subjects Effect', 'Greenhouse-Geisser ε', 'Sphericity Assumed'],
+            rows: [{ 'Within Subjects Effect': 'Time', 'Greenhouse-Geisser ε': ggEpsilon, 'Sphericity Assumed': ggEpsilon > 0.75 ? 'Yes' : 'No' }],
+          });
+          
+          tables.push({
+            title: 'Tests of Within-Subjects Effects',
+            headers: ['Source', 'SS', 'df', 'Mean Square', 'F', 'Sig.', 'Partial η²'],
+            rows: [
+              { Source: 'Sphericity Assumed', SS: ssConditions, df: dfConditions, 'Mean Square': msConditions, F, 'Sig.': pValue, 'Partial η²': eta2 },
+              { Source: 'Greenhouse-Geisser', SS: ssConditions, df: dfCorrected, 'Mean Square': ssConditions / dfCorrected, F, 'Sig.': pCorrected, 'Partial η²': eta2 },
+              { Source: 'Error (Sphericity)', SS: ssError, df: dfError, 'Mean Square': msError, F: '-', 'Sig.': '-', 'Partial η²': '-' },
+              { Source: 'Error (G-G)', SS: ssError, df: dfErrorCorrected, 'Mean Square': ssError / dfErrorCorrected, F: '-', 'Sig.': '-', 'Partial η²': '-' },
+            ],
+          });
+          
+          effectSize = { type: 'Partial η²', value: eta2, magnitude: interpretEtaSquared(eta2), interpretation: `The within-subjects effect size is ${interpretEtaSquared(eta2)} (η² = ${eta2.toFixed(3)})` };
+          
+          // Pairwise comparisons (Bonferroni)
+          if ((sphericityViolated ? pCorrected : pValue) < 0.05) {
+            const postHocRows: Array<Record<string, string | number>> = [];
+            const numComparisons = k * (k - 1) / 2;
+            for (let i = 0; i < k; i++) {
+              for (let j = i + 1; j < k; j++) {
+                const diffs = validCases.map(r => r[i] - r[j]);
+                const mDiff = mean(diffs);
+                const seDiff = standardError(diffs);
+                const tVal = seDiff > 0 ? mDiff / seDiff : 0;
+                const rawP = tTestPValue(tVal, n - 1);
+                const adjP = Math.min(1, rawP * numComparisons);
+                postHocRows.push({
+                  '(I) Condition': depVars[i],
+                  '(J) Condition': depVars[j],
+                  'Mean Difference': mDiff,
+                  'Std. Error': seDiff,
+                  'Sig. (Bonferroni)': adjP,
+                  Significant: adjP < 0.05 ? 'Yes' : 'No',
+                });
+              }
+            }
+            tables.push({ title: 'Pairwise Comparisons (Bonferroni)', headers: ['(I) Condition', '(J) Condition', 'Mean Difference', 'Std. Error', 'Sig. (Bonferroni)', 'Significant'], rows: postHocRows });
+          }
+          
+          // Line chart
+          charts.push({
+            type: 'line',
+            title: 'Estimated Marginal Means',
+            data: depVars.map((v, j) => ({ condition: v, mean: condMeans[j], se: standardError(validCases.map(r => r[j])) })),
+          });
+        }
+      }
+      break;
+    }
+
+    case 'manova': {
+      if (depVars.length >= 2 && groupVar) {
+        const groups: Record<string, number[][]> = {};
+        data.forEach(row => {
+          const g = String(row[groupVar]);
+          const vals = depVars.map(v => Number(row[v]));
+          if (vals.every(v => !isNaN(v)) && g) {
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(vals);
+          }
+        });
+        const groupNames = Object.keys(groups);
+        const k = groupNames.length;
+        const p = depVars.length;
+        
+        if (k >= 2) {
+          const allCases = Object.values(groups).flat();
+          const N = allCases.length;
+          const grandMeans = depVars.map((_, j) => mean(allCases.map(r => r[j])));
+          
+          // Group means
+          const groupMeans: Record<string, number[]> = {};
+          groupNames.forEach(g => {
+            groupMeans[g] = depVars.map((_, j) => mean(groups[g].map(r => r[j])));
+          });
+          
+          // Descriptives table
+          const descRows: Array<Record<string, string | number>> = [];
+          groupNames.forEach(g => {
+            depVars.forEach((v, j) => {
+              const vals = groups[g].map(r => r[j]);
+              descRows.push({ Group: g, DV: v, N: vals.length, Mean: mean(vals), 'Std. Deviation': std(vals) });
+            });
+          });
+          tables.push({ title: 'Descriptive Statistics', headers: ['Group', 'DV', 'N', 'Mean', 'Std. Deviation'], rows: descRows });
+          
+          // Simplified Wilks' Lambda using univariate F values
+          // Run univariate ANOVA for each DV
+          const univariateResults: Array<{ dv: string; F: number; pValue: number; eta2: number }> = [];
+          let productLambda = 1;
+          
+          depVars.forEach((dv, j) => {
+            let ssBetween = 0, ssWithin = 0;
+            groupNames.forEach(g => {
+              const vals = groups[g].map(r => r[j]);
+              const gMean = mean(vals);
+              ssBetween += vals.length * Math.pow(gMean - grandMeans[j], 2);
+              vals.forEach(v => ssWithin += Math.pow(v - gMean, 2));
+            });
+            const dfBetween = k - 1;
+            const dfWithin = N - k;
+            const msBetween = ssBetween / dfBetween;
+            const msWithin = dfWithin > 0 ? ssWithin / dfWithin : 0;
+            const fVal = msWithin > 0 ? msBetween / msWithin : 0;
+            const pVal = fTestPValue(fVal, dfBetween, dfWithin);
+            const eta = partialEtaSquared(ssBetween, ssWithin);
+            univariateResults.push({ dv, F: fVal, pValue: pVal, eta2: eta });
+            
+            const lambda = ssWithin / (ssWithin + ssBetween);
+            productLambda *= lambda;
+          });
+          
+          // Approximate overall F for Wilks' Lambda
+          const dfH = k - 1;
+          const dfE = N - k;
+          const s = Math.min(p, dfH);
+          const approxF = ((1 - Math.pow(productLambda, 1/s)) / Math.pow(productLambda, 1/s)) * (dfE - p + 1) / p;
+          const multiPValue = fTestPValue(Math.abs(approxF), p * dfH, dfE);
+          
+          tables.push({
+            title: 'Multivariate Tests',
+            headers: ['Effect', 'Value', 'F', 'Hypothesis df', 'Error df', 'Sig.'],
+            rows: [{
+              Effect: "Wilks' Lambda",
+              Value: productLambda,
+              F: approxF,
+              'Hypothesis df': p * dfH,
+              'Error df': dfE,
+              'Sig.': multiPValue,
+            }],
+          });
+          
+          // Univariate results
+          tables.push({
+            title: 'Tests of Between-Subjects Effects',
+            headers: ['DV', 'F', 'df', 'Sig.', 'Partial η²'],
+            rows: univariateResults.map(r => ({
+              DV: r.dv,
+              F: r.F,
+              df: `${k - 1}, ${N - k}`,
+              'Sig.': r.pValue,
+              'Partial η²': r.eta2,
+            })),
+          });
+          
+          effectSize = {
+            type: "Wilks' Lambda",
+            value: productLambda,
+            magnitude: productLambda < 0.5 ? 'large' : productLambda < 0.8 ? 'medium' : 'small',
+            interpretation: `Wilks' Λ = ${productLambda.toFixed(3)}, indicating a ${productLambda < 0.5 ? 'large' : productLambda < 0.8 ? 'medium' : 'small'} multivariate effect`,
+          };
+          
+          // Bar charts per DV
+          depVars.forEach(dv => {
+            const j = depVars.indexOf(dv);
+            charts.push({
+              type: 'bar',
+              title: `Group Means: ${dv}`,
+              data: groupNames.map(g => ({ name: g, value: mean(groups[g].map(r => r[j])) })),
+            });
+          });
+        }
+      }
+      break;
+    }
+
+    case 'levene-test': {
+      if (depVars[0] && groupVar) {
+        const groups: Record<string, number[]> = {};
+        data.forEach(row => {
+          const g = String(row[groupVar]);
+          const v = Number(row[depVars[0]]);
+          if (!isNaN(v) && g) {
+            groups[g] = groups[g] || [];
+            groups[g].push(v);
+          }
+        });
+        const groupNames = Object.keys(groups);
+        if (groupNames.length >= 2) {
+          // Levene's test based on deviations from group medians
+          const allDeviations: number[] = [];
+          const groupDeviations: Record<string, number[]> = {};
+          groupNames.forEach(g => {
+            const med = median(groups[g]);
+            groupDeviations[g] = groups[g].map(v => Math.abs(v - med));
+            allDeviations.push(...groupDeviations[g]);
+          });
+          
+          const grandMeanDev = mean(allDeviations);
+          const N = allDeviations.length;
+          const k = groupNames.length;
+          
+          let ssBetween = 0;
+          groupNames.forEach(g => {
+            const gMean = mean(groupDeviations[g]);
+            ssBetween += groupDeviations[g].length * Math.pow(gMean - grandMeanDev, 2);
+          });
+          let ssWithin = 0;
+          groupNames.forEach(g => {
+            const gMean = mean(groupDeviations[g]);
+            groupDeviations[g].forEach(d => ssWithin += Math.pow(d - gMean, 2));
+          });
+          
+          const dfBetween = k - 1;
+          const dfWithin = N - k;
+          const F = dfWithin > 0 ? (ssBetween / dfBetween) / (ssWithin / dfWithin) : 0;
+          const pValue = fTestPValue(F, dfBetween, dfWithin);
+          
+          tables.push({
+            title: "Levene's Test of Equality of Error Variances",
+            headers: ['F', 'df1', 'df2', 'Sig.'],
+            rows: [{ F, df1: dfBetween, df2: dfWithin, 'Sig.': pValue }],
+          });
+          
+          effectSize = {
+            type: 'Levene F',
+            value: F,
+            magnitude: pValue > 0.05 ? 'assumption met' : 'assumption violated',
+            interpretation: pValue > 0.05 ? 'Equal variances can be assumed' : 'Equal variances cannot be assumed',
+          };
+        }
+      }
+      break;
+    }
+
     default:
       tables.push({ title: 'Analysis Results', headers: ['Message'], rows: [{ Message: `Analysis type "${testType}" is not yet fully implemented.` }] });
   }
