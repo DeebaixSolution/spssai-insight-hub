@@ -92,6 +92,68 @@ export type Database = {
           },
         ]
       }
+      analysis_assumptions: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          id: string
+          kurtosis: number | null
+          kurtosis_violation: boolean | null
+          normality_status: boolean
+          p_value: number | null
+          parametric_allowed: boolean | null
+          sample_size: number | null
+          skewness: number | null
+          skewness_violation: boolean | null
+          statistic: number | null
+          test_used: string
+          updated_at: string
+          variable_name: string
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          id?: string
+          kurtosis?: number | null
+          kurtosis_violation?: boolean | null
+          normality_status?: boolean
+          p_value?: number | null
+          parametric_allowed?: boolean | null
+          sample_size?: number | null
+          skewness?: number | null
+          skewness_violation?: boolean | null
+          statistic?: number | null
+          test_used?: string
+          updated_at?: string
+          variable_name: string
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          id?: string
+          kurtosis?: number | null
+          kurtosis_violation?: boolean | null
+          normality_status?: boolean
+          p_value?: number | null
+          parametric_allowed?: boolean | null
+          sample_size?: number | null
+          skewness?: number | null
+          skewness_violation?: boolean | null
+          statistic?: number | null
+          test_used?: string
+          updated_at?: string
+          variable_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_assumptions_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       analysis_blocks: {
         Row: {
           analysis_id: string
@@ -195,6 +257,62 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      analysis_state: {
+        Row: {
+          analysis_id: string
+          created_at: string
+          hypothesis_updated: boolean
+          id: string
+          parametric_executed: boolean
+          step_10_completed: boolean
+          step_4_completed: boolean
+          step_5_completed: boolean
+          step_6_completed: boolean
+          step_7_completed: boolean
+          step_8_completed: boolean
+          step_9_completed: boolean
+          updated_at: string
+        }
+        Insert: {
+          analysis_id: string
+          created_at?: string
+          hypothesis_updated?: boolean
+          id?: string
+          parametric_executed?: boolean
+          step_10_completed?: boolean
+          step_4_completed?: boolean
+          step_5_completed?: boolean
+          step_6_completed?: boolean
+          step_7_completed?: boolean
+          step_8_completed?: boolean
+          step_9_completed?: boolean
+          updated_at?: string
+        }
+        Update: {
+          analysis_id?: string
+          created_at?: string
+          hypothesis_updated?: boolean
+          id?: string
+          parametric_executed?: boolean
+          step_10_completed?: boolean
+          step_4_completed?: boolean
+          step_5_completed?: boolean
+          step_6_completed?: boolean
+          step_7_completed?: boolean
+          step_8_completed?: boolean
+          step_9_completed?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analysis_state_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: true
+            referencedRelation: "analyses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       analysis_tests: {
         Row: {

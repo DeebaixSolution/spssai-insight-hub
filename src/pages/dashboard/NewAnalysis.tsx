@@ -243,17 +243,18 @@ export default function NewAnalysis() {
             <Step4Descriptive
               variables={state.variables}
               parsedData={state.parsedData}
+              analysisId={state.analysisId}
               onComplete={() => markStepCompleted(4)}
             />
           )}
           {state.currentStep === 5 && (
-            <Step5Parametric variables={state.variables} parsedData={state.parsedData} />
+            <Step5Parametric variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 6 && (
-            <Step6NonParametric variables={state.variables} parsedData={state.parsedData} />
+            <Step6NonParametric variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 7 && (
-            <Step7AnovaGLM variables={state.variables} parsedData={state.parsedData} />
+            <Step7AnovaGLM variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 8 && (
             <Step8Correlation variables={state.variables} parsedData={state.parsedData} />
