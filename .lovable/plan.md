@@ -1,228 +1,267 @@
 
 
-# Upgrade Plan: Research Design Intelligence (Steps 1-3) + Academic Production (Steps 11-13)
+# Full Build Plan: Steps 4-7 Statistical Engines
 
-This plan covers two major issues: strengthening Steps 1-3 with academic SPSS-level intelligence, and building out Steps 11-13 from placeholders into fully functional engines.
+## Gap Analysis Summary
 
----
+| Component | Master Prompt Requirement | Current State | Gap |
+|-----------|--------------------------|---------------|-----|
+| **Step 4 UI** | 3 tabs (Descriptive, Normality, Reporting) | 3 tabs exist with SPSS tables | ~60% done |
+| **Step 4 Normality** | Real Shapiro-Wilk/K-S via server | `Math.random()` placeholder (line 121) | Not implemented |
+| **Step 4 Visual Diagnostics** | Histogram, Q-Q plot, Boxplot | Not present | Not implemented |
+| **Step 4 DB Storage** | Save to `analysis_blocks` + `analysis_assumptions` | Not saving anything | Not implemented |
+| **Step 4 Progression Gate** | Block Step 5+ until completed | Not enforced | Not implemented |
+| **Step 5 Parametric** | Full t-test/ANOVA engine with UI | Empty placeholder (19 lines) | Not implemented |
+| **Step 6 Non-Parametric** | Decision tree + 5 test types | Empty placeholder (19 lines) | Not implemented |
+| **Step 7 ANOVA/GLM** | 5 model types with post-hoc | Empty placeholder (19 lines) | Not implemented |
+| **Edge Function** | All test types server-side | `run-analysis` has: descriptives, frequencies, t-tests, ANOVA, chi-square, Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman, correlations, regression, Cronbach's alpha | Backend mostly done |
+| **DB Tables** | `analysis_assumptions`, `analysis_state` | Neither exists | Not created |
 
-## Current State
-
-**Steps 1-3:** Basic functionality exists -- file upload with type/size validation, a Variable View with role/measure assignment and AI detection, and a Research step with hypothesis cards and AI suggestions. No data quality validation, no statistical decision engine, no automatic H0/H1 generation.
-
-**Steps 11-13:** All three are placeholder components showing "Coming in Phase X" text. No actual logic, no database tables, no export capability.
-
----
-
-## ISSUE 1: Research Design Intelligence (Steps 1-3)
-
-### Step 1 -- Data Quality Intelligence Layer
-
-**What changes:** After file parsing succeeds, automatically run a data quality scan and display a collapsible "Data Quality Summary" panel below the file preview.
-
-**File:** `src/components/spss-editor/Step1Upload.tsx`
-
-New sub-component: `src/components/spss-editor/DataQualitySummary.tsx`
-
-**Intelligence computed (client-side, deterministic):**
-- Header validation: detect empty headers, duplicate names, special characters
-- Missing values: count and percentage per variable
-- Data type detection: continuous, ordinal, binary, count (based on unique value analysis)
-- Duplicate row detection (exact match count)
-- Basic outlier flags: IQR method for numeric columns, flag count per variable
-- Overall data quality score (Good / Needs Attention / Issues Found)
-
-**UI:** A summary panel with 4 mini-cards (Missing Values, Duplicates, Outliers, Type Consistency) plus a collapsible detail table. No extra screen -- appears inline after upload.
-
-**Progression gate:** Warns but does not block if issues are found. Displays a yellow/red badge on the Data Quality panel.
+**Key Finding:** The `run-analysis` edge function already has deterministic implementations for nearly all required tests (t-tests, ANOVA, chi-square, Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman, correlations, regression). What is missing is the **frontend UI** connecting to these computations and the **database persistence layer**.
 
 ---
 
-### Step 2 -- Variable Intelligence + Scale Logic Control
+## Phase 1: Database Migration
 
-**What changes:** Enhance the existing Variable View with academic validation logic.
+Create two new tables:
 
-**Files:**
-- `src/components/spss-editor/Step2Variables.tsx` (modify)
-- `src/components/spss-editor/VariableIntelligencePanel.tsx` (new)
+**`analysis_assumptions`** -- stores normality status, skewness, kurtosis per variable
+- id (uuid, PK)
+- analysis_id (uuid, references analyses)
+- variable_name (text)
+- normality_status (boolean)
+- test_used (text) -- "Shapiro-Wilk" or "Kolmogorov-Smirnov"
+- statistic (numeric)
+- p_value (numeric)
+- skewness (numeric)
+- kurtosis (numeric)
+- skewness_violation (boolean)
+- kurtosis_violation (boolean)
+- parametric_allowed (boolean)
+- sample_size (integer)
+- created_at, updated_at
 
-**Enhancements:**
-1. **Enhanced AI classification** -- Extend the `detect-variables` edge function to return granular types: Continuous, Binary, Count, Likert, Categorical (in addition to scale/ordinal/nominal mapping)
-2. **Scale grouping validation** -- Enforce minimum 2 items for scale groups (already exists in `saveScaleGroup`). Add: if scale items grouped, auto-trigger Cronbach's Alpha check via edge function. If alpha < 0.60, show red warning badge on the scale group.
-3. **DV/IV consistency enforcement** -- Validate: at least 1 DV assigned before proceeding, warn if DV and IV are the same variable, warn if DV is nominal for parametric-oriented hypotheses
-4. **Confidence indicator** -- Show a colored dot (green/yellow/red) next to each variable's detected type, based on detection confidence (high = >90% of values match, medium = 70-90%, low = <70%)
+**`analysis_state`** -- tracks per-step completion
+- id (uuid, PK)
+- analysis_id (uuid, references analyses)
+- step_4_completed (boolean, default false)
+- step_5_completed (boolean, default false)
+- step_6_completed (boolean, default false)
+- step_7_completed (boolean, default false)
+- step_8_completed (boolean, default false)
+- step_9_completed (boolean, default false)
+- step_10_completed (boolean, default false)
+- parametric_executed (boolean, default false)
+- hypothesis_updated (boolean, default false)
+- created_at, updated_at
 
-**Edge function update:** `supabase/functions/detect-variables/index.ts` -- extend prompt to return confidence scores and granular sub-types.
-
----
-
-### Step 3 -- Statistical Decision Engine
-
-**What changes:** Transform from a simple hypothesis input form into an academic statistical decision engine.
-
-**Files:**
-- `src/components/spss-editor/Step3Research.tsx` (major rewrite)
-- `src/components/spss-editor/HypothesisCard.tsx` (enhance)
-- `src/components/spss-editor/StatisticalDecisionEngine.tsx` (new)
-
-**Enhancements:**
-
-1. **Decision engine before test suggestion:**
-   - Evaluate DV type (scale/nominal/ordinal)
-   - Count IV groups (from unique values or value labels)
-   - Check sample size per group
-   - Determine assumption requirements
-   - Decision logic: if parametric assumptions likely satisfied, recommend parametric; otherwise recommend non-parametric alternative
-
-2. **Auto-generated hypothesis components per HypothesisCard:**
-   - H0 statement (auto-generated from H1 using templates)
-   - H1 statement (user-entered, becomes the basis)
-   - Direction selector (two-tailed default, one-tailed option)
-   - Required assumptions list (auto-populated based on recommended test)
-   - Effect size declaration (small/medium/large expected)
-   - Post-hoc requirement flag (if 3+ groups detected)
-
-3. **Progression gate:** Block "Next" if no valid hypothesis is added. Show validation panel listing what is missing.
-
-4. **Statistical recommendation panel:** For each hypothesis, show the recommended test with reasoning chain (e.g., "DV is scale + IV has 2 groups + normality likely = Independent T-Test recommended").
+Both tables will have RLS policies following the existing pattern (through analyses -> projects -> user_id).
 
 ---
 
-## ISSUE 2: Academic Production (Steps 11-13)
+## Phase 2: Step 4 Complete Rebuild
 
-### Current State of Steps 11-13
+### What Already Works
+- Descriptive statistics computation (lines 66-89): mean, SD, variance, min, max, range, skewness, kurtosis -- all computed correctly client-side
+- Frequency tables (lines 92-114): correct category counts and percentages
+- SPSS-style table rendering with `.spss-table-academic` CSS class
+- Template-based reporting text (lines 139-168)
+- 3-tab UI structure
 
-All three are empty placeholder components with just an icon and "Coming in Phase X" text. No database tables exist for chapter storage, citations, or exports.
+### What Needs to Be Built
 
----
+**A. Replace fake normality with server-side computation**
+- Add `normality-test` case to `run-analysis` edge function (Shapiro-Wilk approximation for N<50, Kolmogorov-Smirnov for N>=50)
+- Call `run-analysis` with `testType: 'normality-test'` from Step 4
+- Remove `Math.random()` lines (121-122) and replace with actual results
 
-### Database Migrations Required
+**B. Add visual diagnostics (Tab B)**
+- Histogram with normal curve overlay using Recharts BarChart + LineChart composition
+- Q-Q plot using Recharts ScatterChart (sorted values vs theoretical quantiles)
+- Boxplot using Recharts (custom bar chart showing Q1, Q3, median, whiskers)
+- All rendered inline, no separate storage needed initially
 
-**New tables:**
+**C. Add database persistence**
+- After computation, save descriptive results to `analysis_blocks` (section = 'descriptives', test_category = 'descriptive')
+- Save normality results to `analysis_assumptions` table
+- Save frequency tables to `analysis_blocks`
+- Store `parametric_allowed` flag per variable
 
-1. `chapter_results` -- Stores generated Chapter 4 content
-   - id (uuid, PK), analysis_id (uuid, FK), full_text (text), section_mapping (jsonb), version (int default 1), created_at, updated_at
+**D. Add educational tooltips**
+- Collapsible section: "What is Descriptive Statistics?", "What is Normality?", "When to use parametric tests?"
 
-2. `discussion_chapter` -- Stores generated Chapter 5 content
-   - id (uuid, PK), analysis_id (uuid, FK), chapter5_text (text), mode (text: free/pro), theory_input (jsonb), citations_used (jsonb), version (int default 1), created_at, updated_at
+**E. Enforce progression gate**
+- Update `NewAnalysis.tsx` `canProceed()` for step 4: require both descriptive and normality computation to be completed before allowing Step 5+
+- Update `analysis_state.step_4_completed` in database
 
-3. `citations` -- Reference management
-   - id (uuid, PK), analysis_id (uuid), author (text), year (text), title (text), journal (text), doi (text), formatted_reference (text), created_at
-
-4. `thesis_exports` -- Export tracking
-   - id (uuid, PK), analysis_id (uuid), user_id (uuid), export_type (text), version (int), file_url (text), created_at
-
-All tables will have RLS policies scoped through analyses -> projects -> user_id chain.
-
----
-
-### Step 11 -- Academic Results Generator (Chapter 4)
-
-**File:** `src/components/spss-editor/Step11AcademicResults.tsx` (full rewrite)
-
-**5 Internal Engines (all client-side aggregation + AI formatting via edge function):**
-
-1. **Results Aggregation Engine** -- Fetch all `analysis_blocks`, `hypotheses`, assumption results from database. No recalculation.
-
-2. **Structured Chapter Constructor** -- Build sections 4.1 through 4.10 (Sample Description, Measurement Model, Descriptive Statistics, Reliability, Correlation, Regression, Hypothesis Testing, Diagnostics, Integrated Findings, Summary). Map analysis blocks to sections by test_category.
-
-3. **Table and Figure Insertion Engine** -- Auto-number all tables and figures. Insert under correct sections. Render from stored JSON data.
-
-4. **Academic Writing Engine** -- Edge function `generate-chapter4` that takes aggregated results and produces formal APA-7 narrative per section. Template-based for statistics, AI for connecting prose.
-
-5. **Integrated Intelligence Layer** -- Cross-reference descriptive to inferential, reliability to regression, correlation to regression strength. Generate connecting paragraphs.
-
-**UI Components:**
-- Overview panel showing saved status per analysis step
-- "Generate Chapter 4" button
-- Rich text preview (read-only with edit toggle)
-- Export Word / Save Draft buttons
-
-**Edge function:** `supabase/functions/generate-chapter4/index.ts`
+### Files Modified
+- `src/components/spss-editor/Step4Descriptive.tsx` -- major enhancement
+- `supabase/functions/run-analysis/index.ts` -- add `normality-test` case
+- `src/pages/dashboard/NewAnalysis.tsx` -- update progression gate for step 4
 
 ---
 
-### Step 12 -- Theoretical Intelligence Engine (Chapter 5)
+## Phase 3: Step 5 Parametric Engine (Full Build)
 
-**File:** `src/components/spss-editor/Step12Theoretical.tsx` (full rewrite)
+**File:** `src/components/spss-editor/Step5Parametric.tsx` -- complete rewrite from placeholder
 
-**6 Internal Engines:**
+### UI Structure (6 Collapsible Panels)
+1. **Test Selection Panel** -- 4 options: One-Sample T, Independent T, Paired T, One-Way ANOVA. Each enabled/disabled by rule engine checking `analysis_assumptions.parametric_allowed`
+2. **Descriptive Preview** -- Group statistics table (N, Mean, SD, SE)
+3. **Assumptions Check** -- Levene's test result for independent t-test; normality status from Step 4
+4. **Main Results** -- Test statistic table (t/F, df, Sig., Mean Difference, 95% CI)
+5. **Hypothesis Decision** -- Fetches H0/H1 from hypotheses table, applies p < 0.05 rule, stores decision
+6. **Academic Report Preview** -- APA-7 template-based text
 
-1. **Findings Synthesis** -- Summarize supported/rejected hypotheses, strongest predictors, model power
-2. **Theoretical Integration** -- Free mode: simplified interpretation. PRO mode: user inputs theory name, description, prior references; AI connects findings to theory
-3. **Citation System** -- APA-7 in-text citation formatting, reference list generation, manual citation entry (PRO)
-4. **Unexpected Results Analyzer** -- Auto-detect rejected hypotheses, weak effects, low R-squared; generate academic explanations
-5. **Practical Implications** -- Translate findings to actionable recommendations
-6. **Limitations and Future Research** -- Auto-generate based on sample size, design type, model limitations
+### Rule Engine (Pre-test Validation)
+- Check `normality_status` from `analysis_assumptions` table
+- If `parametric_allowed = false` for DV: block test, show warning with non-parametric suggestion
+- Check DV measure = scale
+- Independent T: require grouping variable with exactly 2 groups
+- One-Way ANOVA: require grouping variable with 3+ groups
+- All validation is client-side, deterministic
 
-**UI Components:**
-- Mode selector (Free / PRO)
-- Theory input panel (PRO only): theory name, description, key constructs, references
-- "Generate Chapter 5" button
-- Editable rich text editor with locked structure
-- Advisory intelligence panel (strength/weakness indicators)
+### Backend Connection
+- Calls existing `run-analysis` edge function with appropriate `testType` (already implemented: `one-sample-t-test`, `independent-t-test`, `paired-t-test`, `one-way-anova`)
+- No new edge function needed -- backend already computes all required statistics
 
-**Edge function:** `supabase/functions/generate-chapter5/index.ts`
+### Effect Size
+- Cohen's d for t-tests (already computed in edge function)
+- Eta-squared for ANOVA (already computed in edge function)
+- Display interpretation: 0.2 small, 0.5 medium, 0.8 large
+
+### Database Storage
+- Save all output tables to `analysis_blocks` (section = 'hypothesis', test_category = 'compare-means')
+- Save effect size, p_value, decision to block record
+- Update `hypotheses.status` to 'supported' or 'rejected'
+- Update `analysis_state.step_5_completed`
+
+### Charts
+- Bar chart with error bars for t-tests (mean +/- SE per group)
+- Mean comparison chart for ANOVA
+- Uses existing Recharts components
 
 ---
 
-### Step 13 -- Thesis Binder
+## Phase 4: Step 6 Non-Parametric Engine (Full Build)
 
-**File:** `src/components/spss-editor/Step13ThesisBinder.tsx` (full rewrite)
+**File:** `src/components/spss-editor/Step6NonParametric.tsx` -- complete rewrite from placeholder
 
-**Engines:**
-1. **Data Aggregation** -- Fetch chapter_results + discussion_chapter + citations
-2. **Document Structure** -- Title page, TOC, List of Tables, List of Figures, Chapter 4, Chapter 5, References
-3. **Professional Formatting** -- Times New Roman 12pt, 1.5/2.0 spacing, 1-inch margins, auto page numbering
-4. **Table/Figure Injection** -- Insert all stored tables and figures with captions and auto-numbering
-5. **Citation Integration** -- Insert reference list in APA-7 format (PRO only)
+### Decision Tree Engine (Client-Side)
+Automatic test selection based on variable properties:
+- DV=Nominal + IV=Nominal -> Chi-Square (Fisher if expected < 5)
+- DV=Ordinal/Scale(non-normal) + 2 Independent Groups -> Mann-Whitney U
+- DV=Ordinal/Scale(non-normal) + 2 Related Groups -> Wilcoxon
+- 3+ Independent Groups -> Kruskal-Wallis
+- 3+ Related Measures -> Friedman
+- Correlation + Non-normal -> Spearman
+- Small sample / many ties -> Kendall Tau
 
-**Free vs PRO:**
-- Free: Partial export, watermark footer, no PDF
-- PRO: Full export, no watermark, PDF enabled, full references
+### UI Structure
+- Assumption check summary panel
+- AI-selected test display with reasoning
+- Alternative tests (collapsed)
+- Results tables (SPSS-style)
+- Effect size explanation
+- Hypothesis decision
+- Academic report preview
 
-**UI:** Preview panel, Export Word button, Export PDF button (PRO), Save metadata to thesis_exports table
+### Backend Connection
+- All tests already implemented in `run-analysis`: `chi-square`, `mann-whitney`, `wilcoxon`, `kruskal-wallis`, `friedman`, `spearman`, `kendall-tau`
+- No new edge function code needed
 
-**Edge function:** `supabase/functions/generate-thesis-doc/index.ts` (Word/PDF generation)
+### Per-Test Output (from existing edge function)
+- Chi-Square: Crosstab, Chi-Square table, Cramer's V
+- Mann-Whitney: Ranks, U Statistics, Effect Size r
+- Wilcoxon: Ranks (Pos/Neg), Z, Effect Size r
+- Kruskal-Wallis: Ranks, Chi-Square, Epsilon-squared, Dunn's post-hoc
+- Friedman: Ranks, Chi-Square, Kendall's W
+
+### Database Storage
+- Save to `analysis_blocks` (section = 'hypothesis', test_category = 'nonparametric')
+- Update hypothesis status
+- Update `analysis_state.step_6_completed`
+
+### State Machine
+Track states: INIT -> CHECKING_REQUIREMENTS -> SELECTING_TEST -> RUNNING_TEST -> GENERATING_TABLES -> SAVING_RESULTS -> COMPLETED
+
+---
+
+## Phase 5: Step 7 ANOVA & GLM Engine (Full Build)
+
+**File:** `src/components/spss-editor/Step7AnovaGLM.tsx` -- complete rewrite from placeholder
+
+### Auto-Detection Decision Tree (Client-Side)
+| Condition | Model |
+|-----------|-------|
+| 1 DV + 1 IV (3+ groups) | One-Way ANOVA |
+| 1 DV + 2 IVs | Two-Way ANOVA |
+| 1 DV across time (within-subject) | GLM Repeated Measures |
+| Multiple DVs + 1 IV | One-Way MANOVA |
+| Multiple DVs + 2 IVs | Two-Way MANOVA |
+
+### UI Structure (Collapsible Sections)
+A. Model Summary -- type, DV(s), IV(s), design classification, total N
+B. Assumptions -- Normality status (from Step 4), Levene's test, Mauchly's sphericity (repeated measures), Box's M (MANOVA)
+C. Main Effects -- F, df, Sig., Partial Eta Squared
+D. Interaction Effects (Two-Way/MANOVA) -- A x B interaction
+E. Post Hoc -- Tukey HSD / Bonferroni pairwise comparisons
+F. Effect Size -- Partial eta-squared interpretation (.01 small, .06 medium, .14 large)
+G. Visualization -- Bar chart with error bars (One-Way), Interaction plot (Two-Way), Line plot (Repeated Measures)
+H. Academic Report -- APA-7 formatted narrative
+
+### Backend Changes
+- One-Way ANOVA already implemented in `run-analysis`
+- Need to add: `two-way-anova`, `repeated-measures-anova`, `manova` cases to `run-analysis` edge function
+- Two-Way ANOVA: compute main effects A, B, and interaction A*B using sum of squares decomposition
+- Repeated Measures: within-subject SS decomposition with Mauchly's sphericity test and Greenhouse-Geisser correction
+- MANOVA: Wilks' Lambda computation with follow-up univariate ANOVAs
+
+### Database Storage
+- Save to `analysis_blocks` (section = 'hypothesis', test_category = 'anova-glm')
+- Update hypothesis status
+- Update `analysis_state.step_7_completed`
+
+---
+
+## Implementation Order
+
+| Order | Task | Dependencies |
+|-------|------|-------------|
+| 1 | Database migration (analysis_assumptions + analysis_state) | None |
+| 2 | Add normality-test to run-analysis edge function | None |
+| 3 | Rebuild Step 4 (normality integration, charts, DB storage, gate) | Steps 1-2 |
+| 4 | Build Step 5 Parametric (UI + rule engine + DB storage) | Step 3 |
+| 5 | Build Step 6 Non-Parametric (decision tree + UI + DB storage) | Step 3 |
+| 6 | Add Two-Way ANOVA, Repeated Measures, MANOVA to edge function | None |
+| 7 | Build Step 7 ANOVA/GLM (auto-detection + UI + DB storage) | Step 6 |
+| 8 | Update NewAnalysis.tsx for progression gates and prop passing | Steps 3-7 |
 
 ---
 
 ## Technical Details
 
-### Files to Create (New)
+### Files to Create
 | File | Purpose |
 |------|---------|
-| `src/components/spss-editor/DataQualitySummary.tsx` | Data quality panel for Step 1 |
-| `src/components/spss-editor/VariableIntelligencePanel.tsx` | Confidence indicators and validation for Step 2 |
-| `src/components/spss-editor/StatisticalDecisionEngine.tsx` | Decision logic for Step 3 |
-| `supabase/functions/generate-chapter4/index.ts` | AI chapter 4 generation |
-| `supabase/functions/generate-chapter5/index.ts` | AI chapter 5 generation |
-| `supabase/functions/generate-thesis-doc/index.ts` | Document compilation and export |
+| Migration SQL | `analysis_assumptions` and `analysis_state` tables |
 
 ### Files to Modify
 | File | Changes |
 |------|---------|
-| `src/components/spss-editor/Step1Upload.tsx` | Add DataQualitySummary after file preview |
-| `src/components/spss-editor/Step2Variables.tsx` | Add confidence indicators, scale validation, DV/IV consistency checks |
-| `src/components/spss-editor/Step3Research.tsx` | Integrate StatisticalDecisionEngine, auto H0 generation, progression gate |
-| `src/components/spss-editor/HypothesisCard.tsx` | Add H0 field, direction selector, assumptions list, effect size declaration |
-| `src/components/spss-editor/Step11AcademicResults.tsx` | Full rewrite from placeholder |
-| `src/components/spss-editor/Step12Theoretical.tsx` | Full rewrite from placeholder |
-| `src/components/spss-editor/Step13ThesisBinder.tsx` | Full rewrite from placeholder |
-| `supabase/functions/detect-variables/index.ts` | Add confidence scores and granular sub-types |
-| `src/pages/dashboard/NewAnalysis.tsx` | Update Step 3 progression gate, pass new props to Steps 11-13 |
-| `src/hooks/useAnalysisWizard.ts` | Add chapter/citation state management |
-| `supabase/config.toml` | Register new edge functions |
+| `src/components/spss-editor/Step4Descriptive.tsx` | Add normality edge function call, visual diagnostics (histogram/Q-Q/boxplot), DB persistence, educational tooltips |
+| `src/components/spss-editor/Step5Parametric.tsx` | Full rewrite: 6-panel UI, rule engine, hypothesis decision, academic templates |
+| `src/components/spss-editor/Step6NonParametric.tsx` | Full rewrite: decision tree, 7 test types, state machine, DB storage |
+| `src/components/spss-editor/Step7AnovaGLM.tsx` | Full rewrite: 5 model types, 8-section UI, auto-detection |
+| `supabase/functions/run-analysis/index.ts` | Add: normality-test, two-way-anova, repeated-measures-anova, manova cases |
+| `src/pages/dashboard/NewAnalysis.tsx` | Update `canProceed()` for steps 4-7, pass analysis_id and normality data as props |
+| `src/hooks/useAnalysisWizard.ts` | Add assumption state management and analysis_state sync |
 
-### Database Migration
-One migration creating 4 new tables: `chapter_results`, `discussion_chapter`, `citations`, `thesis_exports` with appropriate RLS policies.
-
-### Implementation Order
-1. Database migration (4 new tables)
-2. Step 1 Data Quality Summary (client-side, no backend)
-3. Step 2 Variable Intelligence (enhance detect-variables edge function + client validation)
-4. Step 3 Statistical Decision Engine (client-side decision logic + HypothesisCard enhancements)
-5. Step 11 Academic Results Generator (edge function + full UI)
-6. Step 12 Theoretical Intelligence Engine (edge function + full UI)
-7. Step 13 Thesis Binder (edge function + full UI)
+### Key Architecture Rules
+- All statistics computed server-side in `run-analysis` (deterministic, not AI)
+- AI used only for interpretation formatting in academic templates
+- All tables/charts saved to `analysis_blocks` -- never regenerated
+- SPSS-style formatting via `.spss-table-academic` CSS class throughout
+- State machine prevents step-skipping
+- `parametric_allowed` flag from Step 4 controls Steps 5 and 7
 
