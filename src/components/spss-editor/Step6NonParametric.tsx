@@ -254,10 +254,10 @@ export function Step6NonParametric({ variables, parsedData, analysisId, hypothes
           {hypotheses.length > 0 && (
             <div>
               <label className="text-xs font-medium mb-1 block">Link to Hypothesis</label>
-              <Select value={linkedHypothesis} onValueChange={setLinkedHypothesis}>
+              <Select value={linkedHypothesis || "none"} onValueChange={(v) => setLinkedHypothesis(v === "none" ? "" : v)}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="" className="text-xs">None</SelectItem>
+                  <SelectItem value="none" className="text-xs">None</SelectItem>
                   {hypotheses.map(h => <SelectItem key={h.id} value={h.id} className="text-xs">{h.hypothesisId}: {h.statement.substring(0, 50)}...</SelectItem>)}
                 </SelectContent>
               </Select>
