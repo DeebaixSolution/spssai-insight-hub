@@ -1,226 +1,211 @@
 
 
-# Full Build Plan: Steps 4-7 Statistical Engines
+# Full Build Plan: Steps 8-10 Statistical Engines
 
-## Gap Analysis Summary
+## Current State vs Master Prompts
 
 | Component | Master Prompt Requirement | Current State | Gap |
 |-----------|--------------------------|---------------|-----|
-| **Step 4 UI** | 3 tabs (Descriptive, Normality, Reporting) | 3 tabs exist with SPSS tables | ~60% done |
-| **Step 4 Normality** | Real Shapiro-Wilk/K-S via server | `Math.random()` placeholder (line 121) | Not implemented |
-| **Step 4 Visual Diagnostics** | Histogram, Q-Q plot, Boxplot | Not present | Not implemented |
-| **Step 4 DB Storage** | Save to `analysis_blocks` + `analysis_assumptions` | Not saving anything | Not implemented |
-| **Step 4 Progression Gate** | Block Step 5+ until completed | Not enforced | Not implemented |
-| **Step 5 Parametric** | Full t-test/ANOVA engine with UI | Empty placeholder (19 lines) | Not implemented |
-| **Step 6 Non-Parametric** | Decision tree + 5 test types | Empty placeholder (19 lines) | Not implemented |
-| **Step 7 ANOVA/GLM** | 5 model types with post-hoc | Empty placeholder (19 lines) | Not implemented |
-| **Edge Function** | All test types server-side | `run-analysis` has: descriptives, frequencies, t-tests, ANOVA, chi-square, Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman, correlations, regression, Cronbach's alpha | Backend mostly done |
-| **DB Tables** | `analysis_assumptions`, `analysis_state` | Neither exists | Not created |
-
-**Key Finding:** The `run-analysis` edge function already has deterministic implementations for nearly all required tests (t-tests, ANOVA, chi-square, Mann-Whitney, Wilcoxon, Kruskal-Wallis, Friedman, correlations, regression). What is missing is the **frontend UI** connecting to these computations and the **database persistence layer**.
+| **Step 8 Frontend** | 3 modes (Pairwise/Matrix/DV-Centered), heatmap, scatter plots, tutorial | Empty placeholder (20 lines) | 0% done |
+| **Step 8 Backend** | Pearson, Spearman, Kendall's Tau | All 3 already implemented in `run-analysis` | Backend ready |
+| **Step 9 Frontend** | Simple/Multiple Linear, Binary Logistic, diagnostics, ROC | Empty placeholder (20 lines) | 0% done |
+| **Step 9 Backend** | Simple linear, multiple linear, logistic, VIF, ROC | Only simple linear regression exists | ~30% done |
+| **Step 10 Frontend** | EFA (KMO, Bartlett, Scree, Pattern Matrix), Reliability (Alpha, item-total) | Empty placeholder (20 lines) | 0% done |
+| **Step 10 Backend** | KMO, Bartlett, factor extraction, rotation, Cronbach's Alpha | Only Cronbach's Alpha exists | ~20% done |
+| **DB Storage** | All outputs to `analysis_blocks`, update `analysis_state` | Tables exist but Steps 8-10 don't use them | Not connected |
 
 ---
 
-## Phase 1: Database Migration
+## Phase 1: Edge Function Extensions
 
-Create two new tables:
+Add the following cases to `supabase/functions/run-analysis/index.ts`:
 
-**`analysis_assumptions`** -- stores normality status, skewness, kurtosis per variable
-- id (uuid, PK)
-- analysis_id (uuid, references analyses)
-- variable_name (text)
-- normality_status (boolean)
-- test_used (text) -- "Shapiro-Wilk" or "Kolmogorov-Smirnov"
-- statistic (numeric)
-- p_value (numeric)
-- skewness (numeric)
-- kurtosis (numeric)
-- skewness_violation (boolean)
-- kurtosis_violation (boolean)
-- parametric_allowed (boolean)
-- sample_size (integer)
-- created_at, updated_at
+**For Step 8 (Correlation):**
+- `correlation-matrix`: Compute pairwise Pearson/Spearman for all scale variable pairs. Return full matrix with coefficients, p-values, and N.
+- `dv-centered-correlation`: Correlate one DV against all IVs, return ranked by absolute coefficient strength.
+- The existing `pearson`, `spearman`, `kendall-tau` cases handle pairwise mode already.
 
-**`analysis_state`** -- tracks per-step completion
-- id (uuid, PK)
-- analysis_id (uuid, references analyses)
-- step_4_completed (boolean, default false)
-- step_5_completed (boolean, default false)
-- step_6_completed (boolean, default false)
-- step_7_completed (boolean, default false)
-- step_8_completed (boolean, default false)
-- step_9_completed (boolean, default false)
-- step_10_completed (boolean, default false)
-- parametric_executed (boolean, default false)
-- hypothesis_updated (boolean, default false)
-- created_at, updated_at
+**For Step 9 (Regression):**
+- `multiple-linear-regression`: Matrix-based OLS for 2+ predictors. Return R, R-squared, adjusted R-squared, ANOVA table, coefficients (B, Beta, t, Sig., 95% CI), VIF/Tolerance per predictor, Durbin-Watson statistic, residual data for diagnostic plots.
+- `binary-logistic-regression`: Iteratively reweighted least squares (or simplified MLE). Return -2LL, Cox and Snell R-squared, Nagelkerke R-squared, Omnibus test, Wald statistics, Exp(B), classification table, ROC/AUC data.
 
-Both tables will have RLS policies following the existing pattern (through analyses -> projects -> user_id).
+**For Step 10 (Measurement):**
+- `kmo-bartlett`: Compute KMO measure of sampling adequacy and Bartlett's test of sphericity from correlation matrix.
+- `factor-analysis`: Principal Axis Factoring or PCA. Return eigenvalues, total variance explained, scree data, rotated pattern/component matrix (Varimax or Oblimin), factor correlation matrix.
+- The existing `cronbach-alpha` case already handles reliability but needs extension for item-total correlations and alpha-if-deleted (which it already computes).
 
 ---
 
-## Phase 2: Step 4 Complete Rebuild
+## Phase 2: Step 8 -- Correlation Intelligence Module
 
-### What Already Works
-- Descriptive statistics computation (lines 66-89): mean, SD, variance, min, max, range, skewness, kurtosis -- all computed correctly client-side
-- Frequency tables (lines 92-114): correct category counts and percentages
-- SPSS-style table rendering with `.spss-table-academic` CSS class
-- Template-based reporting text (lines 139-168)
-- 3-tab UI structure
+**File:** `src/components/spss-editor/Step8Correlation.tsx` -- complete rewrite
 
-### What Needs to Be Built
+### Three Operation Modes (Tab-based UI)
 
-**A. Replace fake normality with server-side computation**
-- Add `normality-test` case to `run-analysis` edge function (Shapiro-Wilk approximation for N<50, Kolmogorov-Smirnov for N>=50)
-- Call `run-analysis` with `testType: 'normality-test'` from Step 4
-- Remove `Math.random()` lines (121-122) and replace with actual results
+**Mode 1 -- Pairwise Correlation**
+- User selects Variable A and Variable B from dropdowns (filtered to scale variables)
+- Auto-detect: if both normal (from `analysis_assumptions`) use Pearson, else Spearman
+- Manual override toggle
+- Output: correlation coefficient, p-value, N, strength classification, direction
+- Scatter plot with line of best fit (Recharts ScatterChart)
 
-**B. Add visual diagnostics (Tab B)**
-- Histogram with normal curve overlay using Recharts BarChart + LineChart composition
-- Q-Q plot using Recharts ScatterChart (sorted values vs theoretical quantiles)
-- Boxplot using Recharts (custom bar chart showing Q1, Q3, median, whiskers)
-- All rendered inline, no separate storage needed initially
+**Mode 2 -- Full Correlation Matrix**
+- Auto-detect all scale variables
+- Run `correlation-matrix` via edge function
+- Display SPSS-style matrix table (Variable x Variable grid with r, Sig, N)
+- Heatmap visualization using Recharts with blue-white-red gradient
+- Color legend for strength
 
-**C. Add database persistence**
-- After computation, save descriptive results to `analysis_blocks` (section = 'descriptives', test_category = 'descriptive')
-- Save normality results to `analysis_assumptions` table
-- Save frequency tables to `analysis_blocks`
-- Store `parametric_allowed` flag per variable
+**Mode 3 -- DV-Centered Correlation**
+- User selects one DV
+- System correlates DV against all IVs
+- Ranked table by absolute coefficient: IV, r, p, Strength, Direction
+- Scatter plots for top correlations
 
-**D. Add educational tooltips**
-- Collapsible section: "What is Descriptive Statistics?", "What is Normality?", "When to use parametric tests?"
-
-**E. Enforce progression gate**
-- Update `NewAnalysis.tsx` `canProceed()` for step 4: require both descriptive and normality computation to be completed before allowing Step 5+
-- Update `analysis_state.step_4_completed` in database
-
-### Files Modified
-- `src/components/spss-editor/Step4Descriptive.tsx` -- major enhancement
-- `supabase/functions/run-analysis/index.ts` -- add `normality-test` case
-- `src/pages/dashboard/NewAnalysis.tsx` -- update progression gate for step 4
-
----
-
-## Phase 3: Step 5 Parametric Engine (Full Build)
-
-**File:** `src/components/spss-editor/Step5Parametric.tsx` -- complete rewrite from placeholder
-
-### UI Structure (6 Collapsible Panels)
-1. **Test Selection Panel** -- 4 options: One-Sample T, Independent T, Paired T, One-Way ANOVA. Each enabled/disabled by rule engine checking `analysis_assumptions.parametric_allowed`
-2. **Descriptive Preview** -- Group statistics table (N, Mean, SD, SE)
-3. **Assumptions Check** -- Levene's test result for independent t-test; normality status from Step 4
-4. **Main Results** -- Test statistic table (t/F, df, Sig., Mean Difference, 95% CI)
-5. **Hypothesis Decision** -- Fetches H0/H1 from hypotheses table, applies p < 0.05 rule, stores decision
-6. **Academic Report Preview** -- APA-7 template-based text
-
-### Rule Engine (Pre-test Validation)
-- Check `normality_status` from `analysis_assumptions` table
-- If `parametric_allowed = false` for DV: block test, show warning with non-parametric suggestion
-- Check DV measure = scale
-- Independent T: require grouping variable with exactly 2 groups
-- One-Way ANOVA: require grouping variable with 3+ groups
-- All validation is client-side, deterministic
-
-### Backend Connection
-- Calls existing `run-analysis` edge function with appropriate `testType` (already implemented: `one-sample-t-test`, `independent-t-test`, `paired-t-test`, `one-way-anova`)
-- No new edge function needed -- backend already computes all required statistics
-
-### Effect Size
-- Cohen's d for t-tests (already computed in edge function)
-- Eta-squared for ANOVA (already computed in edge function)
-- Display interpretation: 0.2 small, 0.5 medium, 0.8 large
+### Strength Classification Engine (client-side)
+- |r| < .10: Negligible
+- .10-.29: Weak
+- .30-.49: Moderate
+- .50-.69: Strong
+- >= .70: Very Strong
 
 ### Database Storage
-- Save all output tables to `analysis_blocks` (section = 'hypothesis', test_category = 'compare-means')
-- Save effect size, p_value, decision to block record
-- Update `hypotheses.status` to 'supported' or 'rejected'
-- Update `analysis_state.step_5_completed`
+- Save each correlation result to `analysis_blocks` (section = 'correlation', test_category = 'correlation')
+- Store mode_type, test_type, variables, coefficient, p_value in block config
+- Update `analysis_state.step_8_completed`
 
-### Charts
-- Bar chart with error bars for t-tests (mean +/- SE per group)
-- Mean comparison chart for ANOVA
-- Uses existing Recharts components
+### Academic Reporting Templates
+- Pearson: "A Pearson correlation was conducted to examine the relationship between [X] and [Y]. There was a [significant/non-significant] [positive/negative] correlation, r([df]) = [r], p = [p], indicating a [strength] association."
+- Spearman: "A Spearman rank-order correlation indicated a [significant/non-significant] [direction] association between [X] and [Y], rho = [rho], p = [p]."
+
+### Tutorial Layer
+- Collapsible section explaining Pearson vs Spearman, r interpretation, p-value meaning
 
 ---
 
-## Phase 4: Step 6 Non-Parametric Engine (Full Build)
+## Phase 3: Step 9 -- Regression Modeling Engine
 
-**File:** `src/components/spss-editor/Step6NonParametric.tsx` -- complete rewrite from placeholder
+**File:** `src/components/spss-editor/Step9Regression.tsx` -- complete rewrite
 
-### Decision Tree Engine (Client-Side)
-Automatic test selection based on variable properties:
-- DV=Nominal + IV=Nominal -> Chi-Square (Fisher if expected < 5)
-- DV=Ordinal/Scale(non-normal) + 2 Independent Groups -> Mann-Whitney U
-- DV=Ordinal/Scale(non-normal) + 2 Related Groups -> Wilcoxon
-- 3+ Independent Groups -> Kruskal-Wallis
-- 3+ Related Measures -> Friedman
-- Correlation + Non-normal -> Spearman
-- Small sample / many ties -> Kendall Tau
+### Regression Decision Tree (client-side)
+- If DV = continuous: enable Simple Linear and Multiple Linear
+- If DV = binary (0/1): enable Binary Logistic
+- If wrong model selected: show warning
 
-### UI Structure
-- Assumption check summary panel
-- AI-selected test display with reasoning
-- Alternative tests (collapsed)
-- Results tables (SPSS-style)
-- Effect size explanation
-- Hypothesis decision
-- Academic report preview
+### Model A -- Simple Linear Regression
+- Uses existing `simple-linear-regression` case
+- Display: Model Summary (R, R-squared, Adjusted R-squared, SE), ANOVA table, Coefficients table (B, SE, t, Sig.)
+- Diagnostic plots: Scatterplot with regression line, Residual vs Predicted plot, Histogram of residuals
+- All using Recharts
 
-### Backend Connection
-- All tests already implemented in `run-analysis`: `chi-square`, `mann-whitney`, `wilcoxon`, `kruskal-wallis`, `friedman`, `spearman`, `kendall-tau`
-- No new edge function code needed
+### Model B -- Multiple Linear Regression
+- Uses new `multiple-linear-regression` case
+- Additional outputs: VIF/Tolerance table per predictor, Durbin-Watson statistic
+- VIF interpretation: > 10 severe, 5-10 moderate, < 5 acceptable
+- Contribution engine: identify strongest predictor by standardized Beta
+- Standardized residuals plot
 
-### Per-Test Output (from existing edge function)
-- Chi-Square: Crosstab, Chi-Square table, Cramer's V
-- Mann-Whitney: Ranks, U Statistics, Effect Size r
-- Wilcoxon: Ranks (Pos/Neg), Z, Effect Size r
-- Kruskal-Wallis: Ranks, Chi-Square, Epsilon-squared, Dunn's post-hoc
-- Friedman: Ranks, Chi-Square, Kendall's W
-
-### Database Storage
-- Save to `analysis_blocks` (section = 'hypothesis', test_category = 'nonparametric')
-- Update hypothesis status
-- Update `analysis_state.step_6_completed`
+### Model C -- Binary Logistic Regression
+- Uses new `binary-logistic-regression` case
+- Display: Model Fit (-2LL, Cox and Snell R-squared, Nagelkerke R-squared), Omnibus test, Variables in Equation (B, Wald, Sig., Exp(B), 95% CI)
+- Classification table
+- ROC curve using Recharts AreaChart
+- AUC interpretation: < .6 weak, .6-.7 fair, .7-.8 good, .8-.9 excellent
+- Odds ratio interpretation engine: auto-convert Exp(B) to percentage statements
 
 ### State Machine
-Track states: INIT -> CHECKING_REQUIREMENTS -> SELECTING_TEST -> RUNNING_TEST -> GENERATING_TABLES -> SAVING_RESULTS -> COMPLETED
+STATE 1: Model selection -> STATE 2: Assumption check -> STATE 3: Model estimation -> STATE 4: Diagnostic validation -> STATE 5: Writing generation -> STATE 6: Database persistence -> STATE 7: Ready for export
+
+### Integration with Previous Steps
+- Check Step 4 normality status for residual assumptions
+- Check Step 8 correlation strength to advise on predictor selection
+- Link to hypotheses from Step 3
+
+### Database Storage
+- Save all tables, charts, diagnostics, interpretation to `analysis_blocks` (section = 'regression', test_category = 'regression')
+- Store model_type, DV, IVs, coefficients, R-squared, diagnostics flags in block config
+- Update `analysis_state.step_9_completed`
+
+### Academic Reporting Templates
+- Simple: "A simple linear regression was conducted to predict [DV] from [IV]. The model was [significant/non-significant], F([df1], [df2]) = [F], p = [p], R-squared = [R2]."
+- Multiple: "A multiple linear regression was conducted... The model explained [R2]% of the variance. [IV] was the strongest predictor (Beta = [beta], p = [p])."
+- Logistic: "A binary logistic regression was performed... The model was [significant/non-significant] (chi-squared([df]) = [X2], p = [p]). [IV] significantly predicted [DV] (Wald = [W], p = [p], OR = [ExpB])."
 
 ---
 
-## Phase 5: Step 7 ANOVA & GLM Engine (Full Build)
+## Phase 4: Step 10 -- Measurement Validation Engine
 
-**File:** `src/components/spss-editor/Step7AnovaGLM.tsx` -- complete rewrite from placeholder
+**File:** `src/components/spss-editor/Step10Measurement.tsx` -- complete rewrite
 
-### Auto-Detection Decision Tree (Client-Side)
-| Condition | Model |
-|-----------|-------|
-| 1 DV + 1 IV (3+ groups) | One-Way ANOVA |
-| 1 DV + 2 IVs | Two-Way ANOVA |
-| 1 DV across time (within-subject) | GLM Repeated Measures |
-| Multiple DVs + 1 IV | One-Way MANOVA |
-| Multiple DVs + 2 IVs | Two-Way MANOVA |
+### Section A -- Construct Validity (EFA)
 
-### UI Structure (Collapsible Sections)
-A. Model Summary -- type, DV(s), IV(s), design classification, total N
-B. Assumptions -- Normality status (from Step 4), Levene's test, Mauchly's sphericity (repeated measures), Box's M (MANOVA)
-C. Main Effects -- F, df, Sig., Partial Eta Squared
-D. Interaction Effects (Two-Way/MANOVA) -- A x B interaction
-E. Post Hoc -- Tukey HSD / Bonferroni pairwise comparisons
-F. Effect Size -- Partial eta-squared interpretation (.01 small, .06 medium, .14 large)
-G. Visualization -- Bar chart with error bars (One-Way), Interaction plot (Two-Way), Line plot (Repeated Measures)
-H. Academic Report -- APA-7 formatted narrative
+**Sub-step 1: Data Suitability**
+- Call `kmo-bartlett` via edge function
+- Display KMO value with interpretation (> .90 Excellent, > .80 Very Good, > .70 Good, > .60 Acceptable, < .50 Inadequate)
+- Display Bartlett's test (chi-squared, df, Sig.)
+- If KMO < .50 or Bartlett p >= .05: block factor analysis with warning
 
-### Backend Changes
-- One-Way ANOVA already implemented in `run-analysis`
-- Need to add: `two-way-anova`, `repeated-measures-anova`, `manova` cases to `run-analysis` edge function
-- Two-Way ANOVA: compute main effects A, B, and interaction A*B using sum of squares decomposition
-- Repeated Measures: within-subject SS decomposition with Mauchly's sphericity test and Greenhouse-Geisser correction
-- MANOVA: Wilks' Lambda computation with follow-up univariate ANOVAs
+**Sub-step 2: Factor Extraction**
+- Call `factor-analysis` via edge function
+- Display Total Variance Explained table (eigenvalues, % variance, cumulative %)
+- Scree plot using Recharts LineChart with eigenvalue > 1 threshold line
+- Auto-detect number of factors using eigenvalue > 1 rule
+
+**Sub-step 3: Rotation**
+- Varimax (orthogonal, default) or Oblimin (if correlated factors expected)
+- If Oblimin: display Component Correlation Matrix
+- User toggle for rotation type
+
+**Sub-step 4: Pattern Matrix**
+- Display Pattern/Component Matrix table
+- Highlight loadings >= .40 (green)
+- Flag cross-loadings >= .30 on multiple factors (yellow warning)
+- Flag weak items < .40 (red)
+- Auto-assign items to strongest factor
+- Suggest removal candidates
+
+**Sub-step 5: Scree Plot Interpretation**
+- Auto-detect elbow point
+- Academic narrative explaining factor count decision
+
+### Section B -- Internal Consistency (Reliability)
+
+**Sub-step 6: Cronbach's Alpha**
+- Uses existing `cronbach-alpha` case (already computes overall alpha, alpha-if-deleted, item-total correlations)
+- Display overall alpha with interpretation
+- Display per-item table: Item, Scale Mean if Deleted, Corrected Item-Total Correlation, Alpha if Deleted
+- Identify items lowering reliability
+
+**Sub-step 7: Smart Item Optimization**
+- MODE 1 (Advisory): AI recommends items to remove but does not auto-delete
+- MODE 2 (Optimization): Simulate removal and show improved alpha, user confirms
+- Scale statistics table: Mean, Variance, SD, N items
+
+### Final Decision Block
+- Measurement Validation Summary panel:
+  - Scale structurally valid? (Yes/No)
+  - Factors retained count
+  - Total variance explained
+  - Final Cronbach's Alpha
+  - Items removed
+  - Scale ready for regression/SEM?
+
+### UI Structure (7 sub-steps in left sidebar)
+1. Suitability (KMO/Bartlett)
+2. Extraction (Eigenvalues)
+3. Rotation
+4. Pattern Matrix
+5. Scree Plot
+6. Reliability
+7. Final Decision
 
 ### Database Storage
-- Save to `analysis_blocks` (section = 'hypothesis', test_category = 'anova-glm')
-- Update hypothesis status
-- Update `analysis_state.step_7_completed`
+- Save all outputs to `analysis_blocks` (section = 'measurement', test_category = 'measurement-validation')
+- Update `analysis_state.step_10_completed`
+
+### Academic Reporting Templates
+- EFA: "An exploratory factor analysis using Principal Axis Factoring with [Varimax/Oblimin] rotation revealed a [N]-factor structure explaining [X]% of the total variance. The KMO measure verified sampling adequacy (KMO = [value]), and Bartlett's test of sphericity was significant (chi-squared([df]) = [X2], p < .001)."
+- Reliability: "The internal consistency of the scale was assessed using Cronbach's alpha. The reliability coefficient was [alpha], indicating [interpretation] internal consistency."
 
 ---
 
@@ -228,40 +213,32 @@ H. Academic Report -- APA-7 formatted narrative
 
 | Order | Task | Dependencies |
 |-------|------|-------------|
-| 1 | Database migration (analysis_assumptions + analysis_state) | None |
-| 2 | Add normality-test to run-analysis edge function | None |
-| 3 | Rebuild Step 4 (normality integration, charts, DB storage, gate) | Steps 1-2 |
-| 4 | Build Step 5 Parametric (UI + rule engine + DB storage) | Step 3 |
-| 5 | Build Step 6 Non-Parametric (decision tree + UI + DB storage) | Step 3 |
-| 6 | Add Two-Way ANOVA, Repeated Measures, MANOVA to edge function | None |
-| 7 | Build Step 7 ANOVA/GLM (auto-detection + UI + DB storage) | Step 6 |
-| 8 | Update NewAnalysis.tsx for progression gates and prop passing | Steps 3-7 |
+| 1 | Add `correlation-matrix` and `dv-centered-correlation` to edge function | None |
+| 2 | Add `multiple-linear-regression` and `binary-logistic-regression` to edge function | None |
+| 3 | Add `kmo-bartlett` and `factor-analysis` to edge function | None |
+| 4 | Build Step 8 Correlation (3 modes + heatmap + DB storage) | Step 1 |
+| 5 | Build Step 9 Regression (3 model types + diagnostics + DB storage) | Step 2 |
+| 6 | Build Step 10 Measurement (EFA + Reliability + DB storage) | Step 3 |
+| 7 | Update NewAnalysis.tsx for prop passing and state tracking | Steps 4-6 |
 
 ---
 
-## Technical Details
+## Files to Modify
 
-### Files to Create
-| File | Purpose |
-|------|---------|
-| Migration SQL | `analysis_assumptions` and `analysis_state` tables |
-
-### Files to Modify
 | File | Changes |
 |------|---------|
-| `src/components/spss-editor/Step4Descriptive.tsx` | Add normality edge function call, visual diagnostics (histogram/Q-Q/boxplot), DB persistence, educational tooltips |
-| `src/components/spss-editor/Step5Parametric.tsx` | Full rewrite: 6-panel UI, rule engine, hypothesis decision, academic templates |
-| `src/components/spss-editor/Step6NonParametric.tsx` | Full rewrite: decision tree, 7 test types, state machine, DB storage |
-| `src/components/spss-editor/Step7AnovaGLM.tsx` | Full rewrite: 5 model types, 8-section UI, auto-detection |
-| `supabase/functions/run-analysis/index.ts` | Add: normality-test, two-way-anova, repeated-measures-anova, manova cases |
-| `src/pages/dashboard/NewAnalysis.tsx` | Update `canProceed()` for steps 4-7, pass analysis_id and normality data as props |
-| `src/hooks/useAnalysisWizard.ts` | Add assumption state management and analysis_state sync |
+| `supabase/functions/run-analysis/index.ts` | Add 5 new cases: correlation-matrix, dv-centered-correlation, multiple-linear-regression, binary-logistic-regression, kmo-bartlett, factor-analysis |
+| `src/components/spss-editor/Step8Correlation.tsx` | Full rewrite: 3-mode correlation engine with heatmap, scatter plots, SPSS tables |
+| `src/components/spss-editor/Step9Regression.tsx` | Full rewrite: 3 regression model types with diagnostics, VIF, ROC, academic templates |
+| `src/components/spss-editor/Step10Measurement.tsx` | Full rewrite: EFA engine (KMO, extraction, rotation, pattern matrix) + reliability engine |
+| `src/pages/dashboard/NewAnalysis.tsx` | Pass analysisId and hypotheses props to Steps 8-10, update state tracking |
 
 ### Key Architecture Rules
-- All statistics computed server-side in `run-analysis` (deterministic, not AI)
-- AI used only for interpretation formatting in academic templates
-- All tables/charts saved to `analysis_blocks` -- never regenerated
-- SPSS-style formatting via `.spss-table-academic` CSS class throughout
-- State machine prevents step-skipping
-- `parametric_allowed` flag from Step 4 controls Steps 5 and 7
+- All statistics computed server-side in `run-analysis` (deterministic, not AI-generated)
+- AI used only for interpretation text formatting
+- All tables and charts saved to `analysis_blocks` -- never regenerated
+- SPSS-style formatting via `.spss-table-academic` CSS class
+- Steps 8-10 integrate with Step 4 normality results (via `analysis_assumptions` table)
+- Step 9 checks Step 8 correlation results before regression modeling
+- All outputs compatible with Step 11-13 academic production and Word export
 
