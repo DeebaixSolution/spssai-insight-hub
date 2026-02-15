@@ -257,13 +257,13 @@ export default function NewAnalysis() {
             <Step7AnovaGLM variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 8 && (
-            <Step8Correlation variables={state.variables} parsedData={state.parsedData} />
+            <Step8Correlation variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 9 && (
-            <Step9Regression variables={state.variables} parsedData={state.parsedData} />
+            <Step9Regression variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
           )}
           {state.currentStep === 10 && (
-            <Step10Measurement variables={state.variables} parsedData={state.parsedData} />
+            <Step10Measurement variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} />
           )}
         </StatisticalAnalysisCenter>
       );

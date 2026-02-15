@@ -1726,7 +1726,6 @@ function calculateStatistics(
         });
         const groupNames = Object.keys(groups);
         if (groupNames.length >= 2) {
-          // Levene's test based on deviations from group medians
           const allDeviations: number[] = [];
           const groupDeviations: Record<string, number[]> = {};
           groupNames.forEach(g => {
@@ -1734,11 +1733,9 @@ function calculateStatistics(
             groupDeviations[g] = groups[g].map(v => Math.abs(v - med));
             allDeviations.push(...groupDeviations[g]);
           });
-          
           const grandMeanDev = mean(allDeviations);
           const N = allDeviations.length;
           const k = groupNames.length;
-          
           let ssBetween = 0;
           groupNames.forEach(g => {
             const gMean = mean(groupDeviations[g]);
@@ -1749,24 +1746,713 @@ function calculateStatistics(
             const gMean = mean(groupDeviations[g]);
             groupDeviations[g].forEach(d => ssWithin += Math.pow(d - gMean, 2));
           });
-          
           const dfBetween = k - 1;
           const dfWithin = N - k;
           const F = dfWithin > 0 ? (ssBetween / dfBetween) / (ssWithin / dfWithin) : 0;
           const pValue = fTestPValue(F, dfBetween, dfWithin);
-          
           tables.push({
             title: "Levene's Test of Equality of Error Variances",
             headers: ['F', 'df1', 'df2', 'Sig.'],
             rows: [{ F, df1: dfBetween, df2: dfWithin, 'Sig.': pValue }],
           });
-          
           effectSize = {
-            type: 'Levene F',
-            value: F,
+            type: 'Levene F', value: F,
             magnitude: pValue > 0.05 ? 'assumption met' : 'assumption violated',
             interpretation: pValue > 0.05 ? 'Equal variances can be assumed' : 'Equal variances cannot be assumed',
           };
+        }
+      }
+      break;
+    }
+
+    case 'correlation-matrix': {
+      // Full pairwise correlation matrix for all scale variables
+      const method = String(options.method || 'auto');
+      const varNames = depVars.length > 0 ? depVars : [];
+      if (varNames.length >= 2) {
+        const matrixRows: Array<Record<string, string | number>> = [];
+        const heatmapData: Array<{ var1: string; var2: string; r: number; p: number; n: number; method: string }> = [];
+        
+        for (let i = 0; i < varNames.length; i++) {
+          const row: Record<string, string | number> = { Variable: varNames[i] };
+          for (let j = 0; j < varNames.length; j++) {
+            if (i === j) {
+              row[`${varNames[j]}_r`] = 1;
+              row[`${varNames[j]}_p`] = '-';
+              row[`${varNames[j]}_n`] = getNumericValues(data, varNames[i]).length;
+            } else {
+              const x = getNumericValues(data, varNames[i]);
+              const y = getNumericValues(data, varNames[j]);
+              const n = Math.min(x.length, y.length);
+              const useSpearman = method === 'spearman';
+              let r: number, pVal: number;
+              if (useSpearman) {
+                const xR = rank(x.slice(0, n)), yR = rank(y.slice(0, n));
+                r = pearsonCorrelation(xR, yR);
+              } else {
+                r = pearsonCorrelation(x.slice(0, n), y.slice(0, n));
+              }
+              const t = r * Math.sqrt((n - 2) / (1 - r * r));
+              pVal = tTestPValue(t, n - 2);
+              row[`${varNames[j]}_r`] = r;
+              row[`${varNames[j]}_p`] = pVal;
+              row[`${varNames[j]}_n`] = n;
+              if (i < j) {
+                heatmapData.push({ var1: varNames[i], var2: varNames[j], r, p: pVal, n, method: useSpearman ? 'Spearman' : 'Pearson' });
+              }
+            }
+          }
+          matrixRows.push(row);
+        }
+        
+        // Flat pairwise table
+        const pairRows = heatmapData.map(h => ({
+          'Variable 1': h.var1, 'Variable 2': h.var2,
+          Coefficient: h.r, 'Sig. (2-tailed)': h.p, N: h.n,
+          Method: h.method, Strength: interpretCorrelation(h.r),
+          Direction: h.r > 0 ? 'Positive' : h.r < 0 ? 'Negative' : 'None',
+        }));
+        tables.push({ title: 'Correlation Matrix (Pairwise)', headers: ['Variable 1', 'Variable 2', 'Coefficient', 'Sig. (2-tailed)', 'N', 'Method', 'Strength', 'Direction'], rows: pairRows });
+        charts.push({ type: 'scatter', title: 'Correlation Heatmap', data: heatmapData });
+      }
+      break;
+    }
+
+    case 'dv-centered-correlation': {
+      const dvName = depVars[0];
+      const ivNames = indVars.length > 0 ? indVars : depVars.slice(1);
+      if (dvName && ivNames.length > 0) {
+        const method = String(options.method || 'pearson');
+        const resultRows: Array<Record<string, string | number>> = [];
+        const scatterData: Array<{ iv: string; points: Array<{ x: number; y: number }> }> = [];
+        
+        ivNames.forEach(ivName => {
+          const x = getNumericValues(data, ivName);
+          const y = getNumericValues(data, dvName);
+          const n = Math.min(x.length, y.length);
+          if (n < 3) return;
+          let r: number;
+          if (method === 'spearman') {
+            const xR = rank(x.slice(0, n)), yR = rank(y.slice(0, n));
+            r = pearsonCorrelation(xR, yR);
+          } else {
+            r = pearsonCorrelation(x.slice(0, n), y.slice(0, n));
+          }
+          const t = r * Math.sqrt((n - 2) / (1 - r * r));
+          const pVal = tTestPValue(t, n - 2);
+          resultRows.push({
+            IV: ivName, DV: dvName, r, 'Sig. (2-tailed)': pVal, N: n,
+            Strength: interpretCorrelation(r),
+            Direction: r > 0 ? 'Positive' : r < 0 ? 'Negative' : 'None',
+            '|r|': Math.abs(r),
+          });
+          scatterData.push({ iv: ivName, points: Array.from({ length: Math.min(n, 100) }, (_, i) => ({ x: x[i], y: y[i] })) });
+        });
+        
+        resultRows.sort((a, b) => (b['|r|'] as number) - (a['|r|'] as number));
+        tables.push({ title: `DV-Centered Correlations: ${dvName}`, headers: ['IV', 'DV', 'r', 'Sig. (2-tailed)', 'N', 'Strength', 'Direction'], rows: resultRows });
+        charts.push({ type: 'scatter', title: 'DV-Centered Scatter Plots', data: scatterData });
+      }
+      break;
+    }
+
+    case 'multiple-linear-regression': {
+      if (depVars[0] && indVars.length >= 2) {
+        const y = getNumericValues(data, depVars[0]);
+        const xArrays = indVars.map(iv => getNumericValues(data, iv));
+        const n = Math.min(y.length, ...xArrays.map(x => x.length));
+        const p = indVars.length;
+        
+        if (n > p + 1) {
+          // Build X matrix with intercept column
+          const X: number[][] = [];
+          for (let i = 0; i < n; i++) {
+            X.push([1, ...xArrays.map(x => x[i])]);
+          }
+          const yVec = y.slice(0, n);
+          
+          // Normal equations: (X'X)^-1 X'y
+          const cols = p + 1;
+          const XtX: number[][] = Array.from({ length: cols }, () => Array(cols).fill(0));
+          const XtY: number[] = Array(cols).fill(0);
+          
+          for (let i = 0; i < n; i++) {
+            for (let j = 0; j < cols; j++) {
+              XtY[j] += X[i][j] * yVec[i];
+              for (let k = 0; k < cols; k++) {
+                XtX[j][k] += X[i][j] * X[i][k];
+              }
+            }
+          }
+          
+          // Invert XtX using Gauss-Jordan
+          const aug: number[][] = XtX.map((row, i) => [...row, ...Array.from({ length: cols }, (_, j) => i === j ? 1 : 0)]);
+          for (let i = 0; i < cols; i++) {
+            let maxRow = i;
+            for (let k = i + 1; k < cols; k++) { if (Math.abs(aug[k][i]) > Math.abs(aug[maxRow][i])) maxRow = k; }
+            [aug[i], aug[maxRow]] = [aug[maxRow], aug[i]];
+            const pivot = aug[i][i];
+            if (Math.abs(pivot) < 1e-12) continue;
+            for (let j = 0; j < 2 * cols; j++) aug[i][j] /= pivot;
+            for (let k = 0; k < cols; k++) {
+              if (k !== i) {
+                const factor = aug[k][i];
+                for (let j = 0; j < 2 * cols; j++) aug[k][j] -= factor * aug[i][j];
+              }
+            }
+          }
+          const XtXinv = aug.map(row => row.slice(cols));
+          
+          // Coefficients
+          const betas: number[] = Array(cols).fill(0);
+          for (let j = 0; j < cols; j++) {
+            for (let k = 0; k < cols; k++) {
+              betas[j] += XtXinv[j][k] * XtY[k];
+            }
+          }
+          
+          // Predictions & residuals
+          const predicted: number[] = [];
+          const residuals: number[] = [];
+          let ssRes = 0, ssTotal = 0;
+          const yMean = mean(yVec);
+          for (let i = 0; i < n; i++) {
+            let pred = 0;
+            for (let j = 0; j < cols; j++) pred += X[i][j] * betas[j];
+            predicted.push(pred);
+            const res = yVec[i] - pred;
+            residuals.push(res);
+            ssRes += res * res;
+            ssTotal += Math.pow(yVec[i] - yMean, 2);
+          }
+          
+          const ssReg = ssTotal - ssRes;
+          const r2 = ssTotal > 0 ? ssReg / ssTotal : 0;
+          const adjR2 = 1 - (1 - r2) * (n - 1) / (n - p - 1);
+          const mse = ssRes / (n - p - 1);
+          const se = Math.sqrt(mse);
+          const fStat = (ssReg / p) / mse;
+          const pF = fTestPValue(fStat, p, n - p - 1);
+          
+          // Coefficient SEs, t-values, CIs
+          const coefSEs: number[] = [];
+          for (let j = 0; j < cols; j++) coefSEs.push(Math.sqrt(mse * XtXinv[j][j]));
+          
+          // Standardized betas
+          const sdY = std(yVec);
+          const sdXs = indVars.map((_, idx) => std(xArrays[idx].slice(0, n)));
+          
+          // VIF calculation
+          const vifs: number[] = [];
+          const tolerances: number[] = [];
+          for (let j = 0; j < p; j++) {
+            // Regress X_j on all other X variables
+            const xj = xArrays[j].slice(0, n);
+            const otherXs = indVars.filter((_, k) => k !== j).map((_, k) => {
+              const idx = k >= j ? k + 1 : k;
+              return xArrays[idx].slice(0, n);
+            });
+            if (otherXs.length === 0) { vifs.push(1); tolerances.push(1); continue; }
+            // Simple R² of xj on others
+            let ssXjTotal = 0, ssXjRes = 0;
+            const xjMean = mean(xj);
+            // Use simple correlation approach for 2-predictor case
+            if (otherXs.length === 1) {
+              const r = pearsonCorrelation(xj, otherXs[0]);
+              const r2x = r * r;
+              vifs.push(1 / (1 - r2x));
+              tolerances.push(1 - r2x);
+            } else {
+              // Approximate: use average pairwise R²
+              let sumR2 = 0, count = 0;
+              for (const ox of otherXs) {
+                const r = pearsonCorrelation(xj, ox);
+                sumR2 += r * r;
+                count++;
+              }
+              const avgR2 = Math.min(0.99, sumR2 / count);
+              vifs.push(1 / (1 - avgR2));
+              tolerances.push(1 - avgR2);
+            }
+          }
+          
+          // Durbin-Watson
+          let dwNum = 0;
+          for (let i = 1; i < residuals.length; i++) dwNum += Math.pow(residuals[i] - residuals[i - 1], 2);
+          const dw = ssRes > 0 ? dwNum / ssRes : 2;
+          
+          tables.push({
+            title: 'Model Summary',
+            headers: ['R', 'R Square', 'Adjusted R Square', 'Std. Error', 'Durbin-Watson'],
+            rows: [{ R: Math.sqrt(r2), 'R Square': r2, 'Adjusted R Square': adjR2, 'Std. Error': se, 'Durbin-Watson': dw }],
+          });
+          tables.push({
+            title: 'ANOVA',
+            headers: ['Model', 'Sum of Squares', 'df', 'Mean Square', 'F', 'Sig.'],
+            rows: [
+              { Model: 'Regression', 'Sum of Squares': ssReg, df: p, 'Mean Square': ssReg / p, F: fStat, 'Sig.': pF },
+              { Model: 'Residual', 'Sum of Squares': ssRes, df: n - p - 1, 'Mean Square': mse, F: '-', 'Sig.': '-' },
+              { Model: 'Total', 'Sum of Squares': ssTotal, df: n - 1, 'Mean Square': '-', F: '-', 'Sig.': '-' },
+            ],
+          });
+          
+          const coefRows: Array<Record<string, string | number>> = [];
+          coefRows.push({
+            '': '(Constant)', B: betas[0], 'Std. Error': coefSEs[0],
+            Beta: '-', t: coefSEs[0] > 0 ? betas[0] / coefSEs[0] : 0,
+            'Sig.': coefSEs[0] > 0 ? tTestPValue(betas[0] / coefSEs[0], n - p - 1) : 1,
+            VIF: '-', Tolerance: '-',
+          });
+          indVars.forEach((iv, idx) => {
+            const b = betas[idx + 1];
+            const seb = coefSEs[idx + 1];
+            const betaStd = sdY > 0 && sdXs[idx] > 0 ? b * sdXs[idx] / sdY : 0;
+            const t = seb > 0 ? b / seb : 0;
+            coefRows.push({
+              '': iv, B: b, 'Std. Error': seb, Beta: betaStd,
+              t, 'Sig.': tTestPValue(t, n - p - 1),
+              VIF: vifs[idx], Tolerance: tolerances[idx],
+            });
+          });
+          tables.push({ title: 'Coefficients', headers: ['', 'B', 'Std. Error', 'Beta', 't', 'Sig.', 'VIF', 'Tolerance'], rows: coefRows });
+          
+          effectSize = { type: 'R²', value: r2, magnitude: interpretR2(r2), interpretation: `The model explains ${(r2 * 100).toFixed(1)}% of variance (${interpretR2(r2)} effect)` };
+          
+          // Residual plot data
+          charts.push({ type: 'scatter', title: 'Residuals vs Predicted', data: predicted.map((p, i) => ({ x: p, y: residuals[i] })).slice(0, 200) });
+          // Histogram of residuals
+          const resMean = mean(residuals);
+          const resStd = std(residuals);
+          const resBinCount = Math.min(Math.ceil(Math.sqrt(residuals.length)), 20);
+          const resMin = min(residuals), resMax = max(residuals);
+          const resBinWidth = (resMax - resMin) / resBinCount || 1;
+          const resBins = Array.from({ length: resBinCount }, (_, b) => {
+            const start = resMin + b * resBinWidth;
+            const end = start + resBinWidth;
+            return {
+              binStart: start, binEnd: end,
+              count: residuals.filter(r => r >= start && (b === resBinCount - 1 ? r <= end : r < end)).length,
+              normalExpected: residuals.length * (normalCDF((end - resMean) / resStd) - normalCDF((start - resMean) / resStd)),
+            };
+          });
+          charts.push({ type: 'histogram', title: 'Residual Distribution', data: { bins: resBins, mean: resMean, std: resStd } });
+        }
+      }
+      break;
+    }
+
+    case 'binary-logistic-regression': {
+      if (depVars[0] && indVars.length >= 1) {
+        const yAll = getNumericValues(data, depVars[0]);
+        const xArrays = indVars.map(iv => getNumericValues(data, iv));
+        const n = Math.min(yAll.length, ...xArrays.map(x => x.length));
+        const p = indVars.length;
+        
+        if (n > p + 1) {
+          const yVec = yAll.slice(0, n);
+          const uniqueY = [...new Set(yVec)].sort();
+          
+          // Initialize coefficients
+          const betas = new Array(p + 1).fill(0); // intercept + p predictors
+          const maxIter = 25;
+          const tol = 1e-6;
+          
+          // IRLS (Iteratively Reweighted Least Squares)
+          for (let iter = 0; iter < maxIter; iter++) {
+            const probs: number[] = [];
+            const W: number[] = [];
+            const z: number[] = [];
+            
+            for (let i = 0; i < n; i++) {
+              let eta = betas[0];
+              for (let j = 0; j < p; j++) eta += betas[j + 1] * xArrays[j][i];
+              const prob = 1 / (1 + Math.exp(-eta));
+              probs.push(Math.max(1e-10, Math.min(1 - 1e-10, prob)));
+              const w = prob * (1 - prob);
+              W.push(Math.max(w, 1e-10));
+              z.push(eta + (yVec[i] - prob) / w);
+            }
+            
+            // Weighted least squares: (X'WX)^-1 X'Wz
+            const cols = p + 1;
+            const XtWX: number[][] = Array.from({ length: cols }, () => Array(cols).fill(0));
+            const XtWz: number[] = Array(cols).fill(0);
+            
+            for (let i = 0; i < n; i++) {
+              const xi = [1, ...xArrays.map(x => x[i])];
+              for (let j = 0; j < cols; j++) {
+                XtWz[j] += xi[j] * W[i] * z[i];
+                for (let k = 0; k < cols; k++) {
+                  XtWX[j][k] += xi[j] * W[i] * xi[k];
+                }
+              }
+            }
+            
+            // Invert XtWX
+            const aug2: number[][] = XtWX.map((row, i) => [...row, ...Array.from({ length: cols }, (_, j) => i === j ? 1 : 0)]);
+            for (let i = 0; i < cols; i++) {
+              let maxRow = i;
+              for (let k = i + 1; k < cols; k++) { if (Math.abs(aug2[k][i]) > Math.abs(aug2[maxRow][i])) maxRow = k; }
+              [aug2[i], aug2[maxRow]] = [aug2[maxRow], aug2[i]];
+              const pivot = aug2[i][i];
+              if (Math.abs(pivot) < 1e-12) continue;
+              for (let j = 0; j < 2 * cols; j++) aug2[i][j] /= pivot;
+              for (let k = 0; k < cols; k++) {
+                if (k !== i) {
+                  const factor = aug2[k][i];
+                  for (let j = 0; j < 2 * cols; j++) aug2[k][j] -= factor * aug2[i][j];
+                }
+              }
+            }
+            const XtWXinv = aug2.map(row => row.slice(cols));
+            
+            const newBetas = Array(cols).fill(0);
+            for (let j = 0; j < cols; j++) {
+              for (let k = 0; k < cols; k++) newBetas[j] += XtWXinv[j][k] * XtWz[k];
+            }
+            
+            let converged = true;
+            for (let j = 0; j < cols; j++) {
+              if (Math.abs(newBetas[j] - betas[j]) > tol) converged = false;
+              betas[j] = newBetas[j];
+            }
+            if (converged) break;
+          }
+          
+          // Final predictions
+          const probs: number[] = [];
+          let logLikelihood = 0;
+          let logLikelihoodNull = 0;
+          const baseRate = mean(yVec);
+          
+          for (let i = 0; i < n; i++) {
+            let eta = betas[0];
+            for (let j = 0; j < p; j++) eta += betas[j + 1] * xArrays[j][i];
+            const prob = 1 / (1 + Math.exp(-eta));
+            probs.push(prob);
+            logLikelihood += yVec[i] * Math.log(Math.max(prob, 1e-10)) + (1 - yVec[i]) * Math.log(Math.max(1 - prob, 1e-10));
+            logLikelihoodNull += yVec[i] * Math.log(Math.max(baseRate, 1e-10)) + (1 - yVec[i]) * Math.log(Math.max(1 - baseRate, 1e-10));
+          }
+          
+          const neg2LL = -2 * logLikelihood;
+          const neg2LLNull = -2 * logLikelihoodNull;
+          const chiSqOmnibus = neg2LLNull - neg2LL;
+          const pOmnibus = chiSquarePValue(chiSqOmnibus, p);
+          const coxSnellR2 = 1 - Math.exp(-(chiSqOmnibus) / n);
+          const maxCoxSnell = 1 - Math.exp(2 * logLikelihoodNull / n);
+          const nagelkerkeR2 = maxCoxSnell > 0 ? coxSnellR2 / maxCoxSnell : 0;
+          
+          // Wald statistics & SEs
+          const finalW: number[] = [];
+          for (let i = 0; i < n; i++) {
+            const w = probs[i] * (1 - probs[i]);
+            finalW.push(Math.max(w, 1e-10));
+          }
+          const cols = p + 1;
+          const fisher: number[][] = Array.from({ length: cols }, () => Array(cols).fill(0));
+          for (let i = 0; i < n; i++) {
+            const xi = [1, ...xArrays.map(x => x[i])];
+            for (let j = 0; j < cols; j++) for (let k = 0; k < cols; k++) fisher[j][k] += xi[j] * finalW[i] * xi[k];
+          }
+          // Invert fisher
+          const augF: number[][] = fisher.map((row, i) => [...row, ...Array.from({ length: cols }, (_, j) => i === j ? 1 : 0)]);
+          for (let i = 0; i < cols; i++) {
+            let maxRow = i;
+            for (let k = i + 1; k < cols; k++) { if (Math.abs(augF[k][i]) > Math.abs(augF[maxRow][i])) maxRow = k; }
+            [augF[i], augF[maxRow]] = [augF[maxRow], augF[i]];
+            const pivot = augF[i][i];
+            if (Math.abs(pivot) < 1e-12) continue;
+            for (let j = 0; j < 2 * cols; j++) augF[i][j] /= pivot;
+            for (let k = 0; k < cols; k++) {
+              if (k !== i) {
+                const factor = augF[k][i];
+                for (let j = 0; j < 2 * cols; j++) augF[k][j] -= factor * augF[i][j];
+              }
+            }
+          }
+          const fisherInv = augF.map(row => row.slice(cols));
+          
+          const coefRows: Array<Record<string, string | number>> = [];
+          const names = ['(Constant)', ...indVars];
+          for (let j = 0; j < cols; j++) {
+            const se = Math.sqrt(Math.max(0, fisherInv[j][j]));
+            const wald = se > 0 ? Math.pow(betas[j] / se, 2) : 0;
+            const pWald = chiSquarePValue(wald, 1);
+            const expB = Math.exp(betas[j]);
+            const ciLower = Math.exp(betas[j] - 1.96 * se);
+            const ciUpper = Math.exp(betas[j] + 1.96 * se);
+            coefRows.push({
+              '': names[j], B: betas[j], 'S.E.': se, Wald: wald,
+              df: 1, 'Sig.': pWald, 'Exp(B)': expB,
+              '95% CI Lower': ciLower, '95% CI Upper': ciUpper,
+            });
+          }
+          
+          // Classification table
+          let tp = 0, tn = 0, fp = 0, fn = 0;
+          for (let i = 0; i < n; i++) {
+            const pred = probs[i] >= 0.5 ? 1 : 0;
+            if (yVec[i] === 1 && pred === 1) tp++;
+            else if (yVec[i] === 0 && pred === 0) tn++;
+            else if (yVec[i] === 0 && pred === 1) fp++;
+            else fn++;
+          }
+          const accuracy = (tp + tn) / n * 100;
+          const sensitivity = tp + fn > 0 ? tp / (tp + fn) * 100 : 0;
+          const specificity = tn + fp > 0 ? tn / (tn + fp) * 100 : 0;
+          
+          // ROC data
+          const sorted = probs.map((p, i) => ({ prob: p, actual: yVec[i] })).sort((a, b) => b.prob - a.prob);
+          const rocPoints: Array<{ fpr: number; tpr: number }> = [{ fpr: 0, tpr: 0 }];
+          let tpCount = 0, fpCount = 0;
+          const totalPos = yVec.filter(y => y === 1).length;
+          const totalNeg = n - totalPos;
+          for (const point of sorted) {
+            if (point.actual === 1) tpCount++; else fpCount++;
+            rocPoints.push({ fpr: totalNeg > 0 ? fpCount / totalNeg : 0, tpr: totalPos > 0 ? tpCount / totalPos : 0 });
+          }
+          // AUC (trapezoidal)
+          let auc = 0;
+          for (let i = 1; i < rocPoints.length; i++) {
+            auc += (rocPoints[i].fpr - rocPoints[i - 1].fpr) * (rocPoints[i].tpr + rocPoints[i - 1].tpr) / 2;
+          }
+          
+          tables.push({
+            title: 'Model Summary',
+            headers: ['-2 Log Likelihood', "Cox & Snell R²", "Nagelkerke R²"],
+            rows: [{ '-2 Log Likelihood': neg2LL, "Cox & Snell R²": coxSnellR2, "Nagelkerke R²": nagelkerkeR2 }],
+          });
+          tables.push({
+            title: 'Omnibus Tests of Model Coefficients',
+            headers: ['', 'Chi-square', 'df', 'Sig.'],
+            rows: [{ '': 'Model', 'Chi-square': chiSqOmnibus, df: p, 'Sig.': pOmnibus }],
+          });
+          tables.push({ title: 'Variables in the Equation', headers: ['', 'B', 'S.E.', 'Wald', 'df', 'Sig.', 'Exp(B)', '95% CI Lower', '95% CI Upper'], rows: coefRows });
+          tables.push({
+            title: 'Classification Table',
+            headers: ['', 'Predicted 0', 'Predicted 1', '% Correct'],
+            rows: [
+              { '': `Observed ${uniqueY[0] ?? 0}`, 'Predicted 0': tn, 'Predicted 1': fp, '% Correct': specificity },
+              { '': `Observed ${uniqueY[1] ?? 1}`, 'Predicted 0': fn, 'Predicted 1': tp, '% Correct': sensitivity },
+              { '': 'Overall', 'Predicted 0': '-', 'Predicted 1': '-', '% Correct': accuracy },
+            ],
+          });
+          tables.push({ title: 'ROC Analysis', headers: ['AUC', 'Interpretation'], rows: [{ AUC: auc, Interpretation: auc < 0.6 ? 'Poor' : auc < 0.7 ? 'Fair' : auc < 0.8 ? 'Good' : auc < 0.9 ? 'Very Good' : 'Excellent' }] });
+          
+          effectSize = { type: "Nagelkerke R²", value: nagelkerkeR2, magnitude: interpretR2(nagelkerkeR2), interpretation: `The model explains ${(nagelkerkeR2 * 100).toFixed(1)}% of variance` };
+          charts.push({ type: 'line', title: 'ROC Curve', data: rocPoints });
+        }
+      }
+      break;
+    }
+
+    case 'kmo-bartlett': {
+      if (depVars.length >= 3) {
+        const itemData = depVars.map(v => getNumericValues(data, v));
+        const validCases: number[][] = [];
+        for (let i = 0; i < data.length; i++) {
+          const row = depVars.map(v => Number(data[i][v]));
+          if (row.every(v => !isNaN(v))) validCases.push(row);
+        }
+        const n = validCases.length;
+        const p = depVars.length;
+        
+        if (n > p) {
+          // Correlation matrix
+          const R: number[][] = [];
+          for (let i = 0; i < p; i++) {
+            R.push([]);
+            for (let j = 0; j < p; j++) {
+              if (i === j) R[i].push(1);
+              else {
+                const x = validCases.map(row => row[i]);
+                const y = validCases.map(row => row[j]);
+                R[i].push(pearsonCorrelation(x, y));
+              }
+            }
+          }
+          
+          // Anti-image correlation (simplified KMO using partial correlations approx)
+          // KMO = sum(r²) / (sum(r²) + sum(partial_r²))
+          let sumR2 = 0, sumPartialR2 = 0;
+          for (let i = 0; i < p; i++) {
+            for (let j = i + 1; j < p; j++) {
+              sumR2 += R[i][j] * R[i][j];
+              // Approximate partial correlation using first-order
+              let partialR = R[i][j];
+              for (let k = 0; k < p; k++) {
+                if (k !== i && k !== j) {
+                  const pr = (R[i][j] - R[i][k] * R[j][k]) / (Math.sqrt(1 - R[i][k] * R[i][k]) * Math.sqrt(1 - R[j][k] * R[j][k]));
+                  partialR = Math.min(partialR, Math.abs(pr));
+                }
+              }
+              sumPartialR2 += partialR * partialR;
+            }
+          }
+          const kmo = (sumR2 + sumPartialR2) > 0 ? sumR2 / (sumR2 + sumPartialR2) : 0;
+          
+          // Bartlett's test: -[(n-1) - (2p+5)/6] * ln(det(R))
+          // Approximate determinant using product of (1 - r²) for off-diagonal
+          let lnDet = 0;
+          for (let i = 0; i < p; i++) {
+            for (let j = i + 1; j < p; j++) {
+              lnDet += Math.log(Math.max(1e-10, 1 - R[i][j] * R[i][j]));
+            }
+          }
+          const bartlettChi = -((n - 1) - (2 * p + 5) / 6) * lnDet;
+          const bartlettDf = p * (p - 1) / 2;
+          const bartlettP = chiSquarePValue(bartlettChi, bartlettDf);
+          
+          const kmoInterpretation = kmo >= 0.9 ? 'Excellent' : kmo >= 0.8 ? 'Very Good' : kmo >= 0.7 ? 'Good' : kmo >= 0.6 ? 'Acceptable' : kmo >= 0.5 ? 'Marginal' : 'Inadequate';
+          
+          tables.push({
+            title: "KMO and Bartlett's Test",
+            headers: ['Measure', 'Value'],
+            rows: [
+              { Measure: 'Kaiser-Meyer-Olkin Measure of Sampling Adequacy', Value: kmo },
+              { Measure: "Bartlett's Test - Approx. Chi-Square", Value: bartlettChi },
+              { Measure: "Bartlett's Test - df", Value: bartlettDf },
+              { Measure: "Bartlett's Test - Sig.", Value: bartlettP },
+              { Measure: 'KMO Interpretation', Value: kmoInterpretation },
+            ],
+          });
+          
+          effectSize = { type: 'KMO', value: kmo, magnitude: kmoInterpretation.toLowerCase(), interpretation: `Sampling adequacy is ${kmoInterpretation} (KMO = ${kmo.toFixed(3)})` };
+        }
+      }
+      break;
+    }
+
+    case 'factor-analysis': {
+      if (depVars.length >= 3) {
+        const validCases: number[][] = [];
+        for (let i = 0; i < data.length; i++) {
+          const row = depVars.map(v => Number(data[i][v]));
+          if (row.every(v => !isNaN(v))) validCases.push(row);
+        }
+        const n = validCases.length;
+        const p = depVars.length;
+        
+        if (n > p) {
+          // Correlation matrix
+          const R: number[][] = [];
+          for (let i = 0; i < p; i++) {
+            R.push([]);
+            for (let j = 0; j < p; j++) {
+              if (i === j) R[i].push(1);
+              else {
+                const x = validCases.map(row => row[i]);
+                const y = validCases.map(row => row[j]);
+                R[i].push(pearsonCorrelation(x, y));
+              }
+            }
+          }
+          
+          // Eigenvalue decomposition using power iteration (simplified)
+          const maxFactors = Math.min(p, 10);
+          const eigenvalues: number[] = [];
+          const eigenvectors: number[][] = [];
+          let workMatrix = R.map(row => [...row]);
+          
+          for (let f = 0; f < maxFactors; f++) {
+            // Power iteration for largest eigenvalue
+            let v = Array.from({ length: p }, () => Math.random());
+            const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+            v = v.map(x => x / norm);
+            
+            let eigenvalue = 0;
+            for (let iter = 0; iter < 100; iter++) {
+              // Matrix-vector multiply
+              const Av = workMatrix.map(row => row.reduce((s, r, j) => s + r * v[j], 0));
+              eigenvalue = Math.sqrt(Av.reduce((s, x) => s + x * x, 0));
+              if (eigenvalue < 1e-10) break;
+              v = Av.map(x => x / eigenvalue);
+            }
+            
+            if (eigenvalue < 0.01) break;
+            eigenvalues.push(eigenvalue);
+            eigenvectors.push([...v]);
+            
+            // Deflate matrix
+            for (let i = 0; i < p; i++) {
+              for (let j = 0; j < p; j++) {
+                workMatrix[i][j] -= eigenvalue * v[i] * v[j];
+              }
+            }
+          }
+          
+          const totalVariance = p; // For correlation matrix
+          const varianceExplained = eigenvalues.map(e => (e / totalVariance) * 100);
+          let cumulative = 0;
+          const cumulativeVariance = varianceExplained.map(v => { cumulative += v; return cumulative; });
+          
+          // Determine number of factors (eigenvalue > 1)
+          const numFactors = eigenvalues.filter(e => e > 1).length || 1;
+          const rotationType = String(options.rotation || 'varimax');
+          
+          tables.push({
+            title: 'Total Variance Explained',
+            headers: ['Component', 'Eigenvalue', '% of Variance', 'Cumulative %'],
+            rows: eigenvalues.map((e, i) => ({
+              Component: i + 1, Eigenvalue: e,
+              '% of Variance': varianceExplained[i], 'Cumulative %': cumulativeVariance[i],
+            })),
+          });
+          
+          // Component/Pattern matrix (unrotated loadings = eigenvector * sqrt(eigenvalue))
+          const loadings: number[][] = [];
+          for (let i = 0; i < p; i++) {
+            loadings.push([]);
+            for (let f = 0; f < numFactors; f++) {
+              loadings[i].push(eigenvectors[f][i] * Math.sqrt(eigenvalues[f]));
+            }
+          }
+          
+          // Varimax rotation (simplified)
+          if (rotationType === 'varimax' && numFactors >= 2) {
+            for (let iter = 0; iter < 20; iter++) {
+              for (let f1 = 0; f1 < numFactors - 1; f1++) {
+                for (let f2 = f1 + 1; f2 < numFactors; f2++) {
+                  let a = 0, b = 0, c = 0, d = 0;
+                  for (let i = 0; i < p; i++) {
+                    const u = loadings[i][f1] * loadings[i][f1] - loadings[i][f2] * loadings[i][f2];
+                    const v = 2 * loadings[i][f1] * loadings[i][f2];
+                    a += u; b += v; c += u * u - v * v; d += 2 * u * v;
+                  }
+                  const angle = Math.atan2(d - 2 * a * b / p, c - (a * a - b * b) / p) / 4;
+                  const cos = Math.cos(angle), sin = Math.sin(angle);
+                  for (let i = 0; i < p; i++) {
+                    const l1 = loadings[i][f1], l2 = loadings[i][f2];
+                    loadings[i][f1] = l1 * cos + l2 * sin;
+                    loadings[i][f2] = -l1 * sin + l2 * cos;
+                  }
+                }
+              }
+            }
+          }
+          
+          const matrixRows: Array<Record<string, string | number>> = [];
+          for (let i = 0; i < p; i++) {
+            const row: Record<string, string | number> = { Variable: depVars[i] };
+            for (let f = 0; f < numFactors; f++) {
+              row[`Factor ${f + 1}`] = loadings[i][f];
+            }
+            // Communality
+            row['Communality'] = loadings[i].reduce((s, l) => s + l * l, 0);
+            matrixRows.push(row);
+          }
+          
+          const headers = ['Variable', ...Array.from({ length: numFactors }, (_, f) => `Factor ${f + 1}`), 'Communality'];
+          tables.push({ title: rotationType === 'varimax' ? 'Rotated Component Matrix (Varimax)' : 'Component Matrix', headers, rows: matrixRows });
+          
+          // Scree plot data
+          charts.push({
+            type: 'line',
+            title: 'Scree Plot',
+            data: eigenvalues.map((e, i) => ({ component: i + 1, eigenvalue: e })),
+          });
+          
+          effectSize = { type: 'Factors Extracted', value: numFactors, magnitude: `${numFactors} factor${numFactors > 1 ? 's' : ''}`, interpretation: `${numFactors} factor(s) extracted explaining ${cumulativeVariance[numFactors - 1]?.toFixed(1)}% of variance` };
         }
       }
       break;
