@@ -81,8 +81,14 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
           // Parse sections from saved text
           const parsed: Record<string, string> = {};
           CHAPTER_5_SECTIONS.forEach(s => { parsed[s.id] = ''; });
-          const mapping = (saved as any).section_mapping as Record<string, string> | undefined;
-          setSections(mapping || parsed);
+          const mapping = (saved as any).section_mapping as Record<string, unknown> | undefined;
+          if (mapping) {
+            const safeSections: Record<string, string> = {};
+            Object.entries(mapping).forEach(([k, v]) => { safeSections[k] = typeof v === 'string' ? v : JSON.stringify(v ?? ''); });
+            setSections(safeSections);
+          } else {
+            setSections(parsed);
+          }
         }
         if (saved.theory_input) setTheoryInput(saved.theory_input as unknown as TheoryInput);
         setMode(saved.mode === 'pro' ? 'pro' : 'free');
@@ -310,7 +316,7 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
                     ) : (
                       <div className="prose prose-sm dark:prose-invert max-w-none font-serif">
                         {sections[s.id] ? (
-                          sections[s.id].split('\n').map((p, i) => <p key={i}>{p}</p>)
+                          String(sections[s.id]).split('\n').map((p, i) => <p key={i}>{p}</p>)
                         ) : (
                           <p className="text-muted-foreground italic">No content yet.</p>
                         )}

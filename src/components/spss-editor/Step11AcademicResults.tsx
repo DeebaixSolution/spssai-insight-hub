@@ -338,7 +338,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
                     ) : (
                       <div className="prose prose-sm dark:prose-invert max-w-none font-serif">
                         {section.content ? (
-                          section.content.split('\n').map((p, i) => <p key={i}>{p}</p>)
+                          String(section.content || '').split('\n').map((p, i) => <p key={i}>{p}</p>)
                         ) : (
                           <p className="text-muted-foreground italic">No content generated for this section.</p>
                         )}
