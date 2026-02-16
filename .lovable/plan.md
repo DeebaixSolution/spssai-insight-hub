@@ -1,244 +1,208 @@
 
 
-# Full Build Plan: Steps 8-10 Statistical Engines
+# Comprehensive Fix Plan: Steps 2, 3, 4-10, 11, 12, 13 + Persistence + AI Assistant
 
-## Current State vs Master Prompts
+## Issues Identified
 
-| Component | Master Prompt Requirement | Current State | Gap |
-|-----------|--------------------------|---------------|-----|
-| **Step 8 Frontend** | 3 modes (Pairwise/Matrix/DV-Centered), heatmap, scatter plots, tutorial | Empty placeholder (20 lines) | 0% done |
-| **Step 8 Backend** | Pearson, Spearman, Kendall's Tau | All 3 already implemented in `run-analysis` | Backend ready |
-| **Step 9 Frontend** | Simple/Multiple Linear, Binary Logistic, diagnostics, ROC | Empty placeholder (20 lines) | 0% done |
-| **Step 9 Backend** | Simple linear, multiple linear, logistic, VIF, ROC | Only simple linear regression exists | ~30% done |
-| **Step 10 Frontend** | EFA (KMO, Bartlett, Scree, Pattern Matrix), Reliability (Alpha, item-total) | Empty placeholder (20 lines) | 0% done |
-| **Step 10 Backend** | KMO, Bartlett, factor extraction, rotation, Cronbach's Alpha | Only Cronbach's Alpha exists | ~20% done |
-| **DB Storage** | All outputs to `analysis_blocks`, update `analysis_state` | Tables exist but Steps 8-10 don't use them | Not connected |
+### Critical Bug: Database Constraint Blocks Saving (Steps 8-13)
+The `analyses_current_step_check` constraint limits `current_step` to values 1-7. This causes "failed to save progress" errors in Steps 8 (Correlation), 9 (Regression), and all subsequent steps. This single constraint is the root cause of multiple reported failures.
 
----
-
-## Phase 1: Edge Function Extensions
-
-Add the following cases to `supabase/functions/run-analysis/index.ts`:
-
-**For Step 8 (Correlation):**
-- `correlation-matrix`: Compute pairwise Pearson/Spearman for all scale variable pairs. Return full matrix with coefficients, p-values, and N.
-- `dv-centered-correlation`: Correlate one DV against all IVs, return ranked by absolute coefficient strength.
-- The existing `pearson`, `spearman`, `kendall-tau` cases handle pairwise mode already.
-
-**For Step 9 (Regression):**
-- `multiple-linear-regression`: Matrix-based OLS for 2+ predictors. Return R, R-squared, adjusted R-squared, ANOVA table, coefficients (B, Beta, t, Sig., 95% CI), VIF/Tolerance per predictor, Durbin-Watson statistic, residual data for diagnostic plots.
-- `binary-logistic-regression`: Iteratively reweighted least squares (or simplified MLE). Return -2LL, Cox and Snell R-squared, Nagelkerke R-squared, Omnibus test, Wald statistics, Exp(B), classification table, ROC/AUC data.
-
-**For Step 10 (Measurement):**
-- `kmo-bartlett`: Compute KMO measure of sampling adequacy and Bartlett's test of sphericity from correlation matrix.
-- `factor-analysis`: Principal Axis Factoring or PCA. Return eigenvalues, total variance explained, scree data, rotated pattern/component matrix (Varimax or Oblimin), factor correlation matrix.
-- The existing `cronbach-alpha` case already handles reliability but needs extension for item-total correlations and alpha-if-deleted (which it already computes).
+### Issue List Summary
+| # | Issue | Root Cause |
+|---|-------|-----------|
+| 1 | Step 2: AI Detect doesn't assign role/measure/values properly | `detect-variables` edge function doesn't return `role` or `valueLabels`; scale grouping only manual |
+| 2 | Step 3a: No "Generate Research Questions" button | Missing feature |
+| 3 | Step 3b: Only 3 hypotheses generated; no numbering control | AI generates fixed count; no quantity input |
+| 4 | Step 3c: Hypothesis doesn't auto-show DV/IV selectors | DV/IV selectors exist in HypothesisCard but not pre-populated by AI |
+| 5 | Steps 4-10: No "SPSS Brain Analysis" one-click button | Missing feature |
+| 6 | Step 8: "Failed to save progress" | `current_step` constraint blocks saving beyond step 7 |
+| 7 | Step 9: "Failed to save progress" | Same constraint issue |
+| 8 | Step 11: Chapter 4 generation missing tables/charts from prior steps | `generate-chapter4` only receives block metadata, not actual result tables |
+| 9 | Step 11: No per-section regenerate button | Missing feature |
+| 10 | Step 12: Chapter 5 sections not saved/generated properly | `section_mapping` not saved; missing per-section AI button |
+| 11 | Step 13: Download produces nothing visible | `generate-thesis-doc` returns plain text, not actual .docx binary |
+| 12 | Note 1: Analysis not persisted when closing and returning | `saveAnalysis` hits constraint; auto-save not triggered |
+| 13 | Note 2: No AI assistant guidance across steps | Missing feature |
 
 ---
 
-## Phase 2: Step 8 -- Correlation Intelligence Module
+## Phase 1: Database Migration (Fixes Issues 6, 7, 12)
 
-**File:** `src/components/spss-editor/Step8Correlation.tsx` -- complete rewrite
+**Update the `analyses_current_step_check` constraint** to allow steps 1-13:
 
-### Three Operation Modes (Tab-based UI)
+```sql
+ALTER TABLE analyses DROP CONSTRAINT analyses_current_step_check;
+ALTER TABLE analyses ADD CONSTRAINT analyses_current_step_check CHECK (current_step >= 1 AND current_step <= 13);
+```
 
-**Mode 1 -- Pairwise Correlation**
-- User selects Variable A and Variable B from dropdowns (filtered to scale variables)
-- Auto-detect: if both normal (from `analysis_assumptions`) use Pearson, else Spearman
-- Manual override toggle
-- Output: correlation coefficient, p-value, N, strength classification, direction
-- Scatter plot with line of best fit (Recharts ScatterChart)
-
-**Mode 2 -- Full Correlation Matrix**
-- Auto-detect all scale variables
-- Run `correlation-matrix` via edge function
-- Display SPSS-style matrix table (Variable x Variable grid with r, Sig, N)
-- Heatmap visualization using Recharts with blue-white-red gradient
-- Color legend for strength
-
-**Mode 3 -- DV-Centered Correlation**
-- User selects one DV
-- System correlates DV against all IVs
-- Ranked table by absolute coefficient: IV, r, p, Strength, Direction
-- Scatter plots for top correlations
-
-### Strength Classification Engine (client-side)
-- |r| < .10: Negligible
-- .10-.29: Weak
-- .30-.49: Moderate
-- .50-.69: Strong
-- >= .70: Very Strong
-
-### Database Storage
-- Save each correlation result to `analysis_blocks` (section = 'correlation', test_category = 'correlation')
-- Store mode_type, test_type, variables, coefficient, p_value in block config
-- Update `analysis_state.step_8_completed`
-
-### Academic Reporting Templates
-- Pearson: "A Pearson correlation was conducted to examine the relationship between [X] and [Y]. There was a [significant/non-significant] [positive/negative] correlation, r([df]) = [r], p = [p], indicating a [strength] association."
-- Spearman: "A Spearman rank-order correlation indicated a [significant/non-significant] [direction] association between [X] and [Y], rho = [rho], p = [p]."
-
-### Tutorial Layer
-- Collapsible section explaining Pearson vs Spearman, r interpretation, p-value meaning
+This single fix resolves:
+- Step 8 correlation "failed to save"
+- Step 9 regression "failed to save"
+- All step persistence beyond step 7
 
 ---
 
-## Phase 3: Step 9 -- Regression Modeling Engine
+## Phase 2: Step 2 -- Enhanced AI Detection (Issue 1)
 
-**File:** `src/components/spss-editor/Step9Regression.tsx` -- complete rewrite
+**File: `supabase/functions/detect-variables/index.ts`**
+- Update the prompt to also return `role` (dependent/independent/demographic/scale_item/id) and detect scale item patterns (e.g., Q1, Q2... or Likert items) and group them with a `scaleGroup` name.
+- Return: `{name, type, label, role, scaleGroup, valueLabels}`
 
-### Regression Decision Tree (client-side)
-- If DV = continuous: enable Simple Linear and Multiple Linear
-- If DV = binary (0/1): enable Binary Logistic
-- If wrong model selected: show warning
-
-### Model A -- Simple Linear Regression
-- Uses existing `simple-linear-regression` case
-- Display: Model Summary (R, R-squared, Adjusted R-squared, SE), ANOVA table, Coefficients table (B, SE, t, Sig.)
-- Diagnostic plots: Scatterplot with regression line, Residual vs Predicted plot, Histogram of residuals
-- All using Recharts
-
-### Model B -- Multiple Linear Regression
-- Uses new `multiple-linear-regression` case
-- Additional outputs: VIF/Tolerance table per predictor, Durbin-Watson statistic
-- VIF interpretation: > 10 severe, 5-10 moderate, < 5 acceptable
-- Contribution engine: identify strongest predictor by standardized Beta
-- Standardized residuals plot
-
-### Model C -- Binary Logistic Regression
-- Uses new `binary-logistic-regression` case
-- Display: Model Fit (-2LL, Cox and Snell R-squared, Nagelkerke R-squared), Omnibus test, Variables in Equation (B, Wald, Sig., Exp(B), 95% CI)
-- Classification table
-- ROC curve using Recharts AreaChart
-- AUC interpretation: < .6 weak, .6-.7 fair, .7-.8 good, .8-.9 excellent
-- Odds ratio interpretation engine: auto-convert Exp(B) to percentage statements
-
-### State Machine
-STATE 1: Model selection -> STATE 2: Assumption check -> STATE 3: Model estimation -> STATE 4: Diagnostic validation -> STATE 5: Writing generation -> STATE 6: Database persistence -> STATE 7: Ready for export
-
-### Integration with Previous Steps
-- Check Step 4 normality status for residual assumptions
-- Check Step 8 correlation strength to advise on predictor selection
-- Link to hypotheses from Step 3
-
-### Database Storage
-- Save all tables, charts, diagnostics, interpretation to `analysis_blocks` (section = 'regression', test_category = 'regression')
-- Store model_type, DV, IVs, coefficients, R-squared, diagnostics flags in block config
-- Update `analysis_state.step_9_completed`
-
-### Academic Reporting Templates
-- Simple: "A simple linear regression was conducted to predict [DV] from [IV]. The model was [significant/non-significant], F([df1], [df2]) = [F], p = [p], R-squared = [R2]."
-- Multiple: "A multiple linear regression was conducted... The model explained [R2]% of the variance. [IV] was the strongest predictor (Beta = [beta], p = [p])."
-- Logistic: "A binary logistic regression was performed... The model was [significant/non-significant] (chi-squared([df]) = [X2], p = [p]). [IV] significantly predicted [DV] (Wald = [W], p = [p], OR = [ExpB])."
+**File: `src/components/spss-editor/Step2Variables.tsx`**
+- Add a new button: "AI Detect and Group" that calls the enhanced detect-variables function, assigns roles, measures, value labels, AND auto-groups scale items.
+- Keep existing "Group Scale Items" button as the manual option.
+- Remove the PRO gate from the AI Detect button (make it available to all users).
+- After AI detection, apply detected `role`, `measure`, `valueLabels`, and `scaleGroup` to each variable.
 
 ---
 
-## Phase 4: Step 10 -- Measurement Validation Engine
+## Phase 3: Step 3 -- Research Question Generator + Hypothesis Improvements (Issues 2, 3, 4)
 
-**File:** `src/components/spss-editor/Step10Measurement.tsx` -- complete rewrite
+**3a -- Research Question Generator**
 
-### Section A -- Construct Validity (EFA)
+**File: `src/components/spss-editor/Step3Research.tsx`**
+- Add a "Generate Research Questions" button below the textarea.
+- When clicked, call `suggest-analysis` edge function with the variable list and get back 3 research question suggestions.
+- Display as selectable cards; clicking one fills the textarea.
 
-**Sub-step 1: Data Suitability**
-- Call `kmo-bartlett` via edge function
-- Display KMO value with interpretation (> .90 Excellent, > .80 Very Good, > .70 Good, > .60 Acceptable, < .50 Inadequate)
-- Display Bartlett's test (chi-squared, df, Sig.)
-- If KMO < .50 or Bartlett p >= .05: block factor analysis with warning
+**File: `supabase/functions/suggest-analysis/index.ts`**
+- Add a `mode: 'research-questions'` option that returns 3 research question suggestions based on variables.
 
-**Sub-step 2: Factor Extraction**
-- Call `factor-analysis` via edge function
-- Display Total Variance Explained table (eigenvalues, % variance, cumulative %)
-- Scree plot using Recharts LineChart with eigenvalue > 1 threshold line
-- Auto-detect number of factors using eigenvalue > 1 rule
+**3b -- Hypothesis Count Control**
 
-**Sub-step 3: Rotation**
-- Varimax (orthogonal, default) or Oblimin (if correlated factors expected)
-- If Oblimin: display Component Correlation Matrix
-- User toggle for rotation type
+**File: `src/components/spss-editor/Step3Research.tsx`**
+- Add a number input (1-10) before the "AI Suggest Hypotheses" button to control how many hypotheses to generate.
+- Pass the count to the edge function.
+- Each generated hypothesis gets a sequential number (H1, H2, H3...).
 
-**Sub-step 4: Pattern Matrix**
-- Display Pattern/Component Matrix table
-- Highlight loadings >= .40 (green)
-- Flag cross-loadings >= .30 on multiple factors (yellow warning)
-- Flag weak items < .40 (red)
-- Auto-assign items to strongest factor
-- Suggest removal candidates
+**3c -- Auto DV/IV Selection on Generation**
 
-**Sub-step 5: Scree Plot Interpretation**
-- Auto-detect elbow point
-- Academic narrative explaining factor count decision
+**File: `src/components/spss-editor/Step3Research.tsx`**
+- Update `applySuggestion` to auto-populate `dependentVariables` and `independentVariables` from the AI response.
+- Update `suggest-analysis` edge function to return `suggestedDV` and `suggestedIV` fields matching actual variable names.
 
-### Section B -- Internal Consistency (Reliability)
+**File: `src/components/spss-editor/HypothesisCard.tsx`**
+- When hypothesis is created from AI, auto-expand the card and highlight the DV/IV dropdowns.
 
-**Sub-step 6: Cronbach's Alpha**
-- Uses existing `cronbach-alpha` case (already computes overall alpha, alpha-if-deleted, item-total correlations)
-- Display overall alpha with interpretation
-- Display per-item table: Item, Scale Mean if Deleted, Corrected Item-Total Correlation, Alpha if Deleted
-- Identify items lowering reliability
+---
 
-**Sub-step 7: Smart Item Optimization**
-- MODE 1 (Advisory): AI recommends items to remove but does not auto-delete
-- MODE 2 (Optimization): Simulate removal and show improved alpha, user confirms
-- Scale statistics table: Mean, Variance, SD, N items
+## Phase 4: SPSS Brain Analysis Button (Issue 5)
 
-### Final Decision Block
-- Measurement Validation Summary panel:
-  - Scale structurally valid? (Yes/No)
-  - Factors retained count
-  - Total variance explained
-  - Final Cronbach's Alpha
-  - Items removed
-  - Scale ready for regression/SEM?
+**File: `src/components/spss-editor/StatisticalAnalysisCenter.tsx`**
+- Add a prominent "SPSS Brain Analysis" button at the top of the Statistical Analysis Center (Layer 2).
+- When clicked, it runs a sequence:
+  1. Step 4: Auto-run descriptive stats and normality for all scale variables.
+  2. Step 5/6: Based on hypotheses and normality results, auto-select and run appropriate parametric or non-parametric tests.
+  3. Step 7: If multi-factor design detected, auto-run ANOVA/GLM.
+  4. Step 8: Auto-run correlation matrix for all scale variables.
+  5. Step 9: If prediction hypothesis exists, auto-run regression.
+  6. Step 10: If scale items exist, auto-run reliability analysis.
+- Show a progress indicator while running.
+- All results saved to `analysis_blocks`.
+- Manual step access remains unchanged -- user can still go to each step individually.
 
-### UI Structure (7 sub-steps in left sidebar)
-1. Suitability (KMO/Bartlett)
-2. Extraction (Eigenvalues)
-3. Rotation
-4. Pattern Matrix
-5. Scree Plot
-6. Reliability
-7. Final Decision
+**New file: `src/hooks/useSpssAutoPilot.ts`**
+- Contains the orchestration logic for the auto-pilot sequence.
+- Calls `run-analysis` edge function sequentially for each step.
+- Tracks progress and errors.
 
-### Database Storage
-- Save all outputs to `analysis_blocks` (section = 'measurement', test_category = 'measurement-validation')
-- Update `analysis_state.step_10_completed`
+---
 
-### Academic Reporting Templates
-- EFA: "An exploratory factor analysis using Principal Axis Factoring with [Varimax/Oblimin] rotation revealed a [N]-factor structure explaining [X]% of the total variance. The KMO measure verified sampling adequacy (KMO = [value]), and Bartlett's test of sphericity was significant (chi-squared([df]) = [X2], p < .001)."
-- Reliability: "The internal consistency of the scale was assessed using Cronbach's alpha. The reliability coefficient was [alpha], indicating [interpretation] internal consistency."
+## Phase 5: Step 11 -- Chapter 4 with Real Tables (Issues 8, 9)
+
+**File: `supabase/functions/generate-chapter4/index.ts`**
+- Enhance the prompt to include actual statistical values from `analysis_blocks.results`.
+- For each section, include the real tables (means, SD, F-values, p-values, etc.) so the AI references them correctly.
+- Return structured content with embedded table references.
+
+**File: `src/components/spss-editor/Step11AcademicResults.tsx`**
+- Add a "Regenerate" button per section (not just global regenerate).
+- For each section, display the actual SPSS-style tables from `analysis_blocks` inline (descriptive tables, correlation matrices, regression coefficients, etc.).
+- Show the AI interpretation text below each table.
+- Tables are rendered using the existing `.spss-table-academic` CSS class.
+- Section layout: Table first, then interpretation paragraph.
+
+---
+
+## Phase 6: Step 12 -- Chapter 5 Fix (Issue 10)
+
+**File: `src/components/spss-editor/Step12Theoretical.tsx`**
+- Save `section_mapping` as a proper JSON object when saving (currently missing from the save record).
+- Add per-section "AI Generate" button that regenerates only that section.
+- Add "AI Autofill Theory" button in the theory tab that suggests a theoretical framework based on variables and research question.
+
+**File: `src/components/spss-editor/Step12Theoretical.tsx` (handleSave)**
+- Add `section_mapping: sections as any` to the save record so sections are persisted individually.
+
+---
+
+## Phase 7: Step 13 -- Working Download (Issue 11)
+
+**File: `supabase/functions/generate-thesis-doc/index.ts`**
+- Currently returns plain text. Needs to generate actual downloadable content.
+- Format the text as structured HTML that can be converted to a .docx Blob on the client side.
+- Include all tables from `analysis_blocks` in the document body.
+- Include chapter headings, section numbers, and APA formatting.
+
+**File: `src/components/spss-editor/Step13ThesisBinder.tsx`**
+- Fix the download handler to properly create a downloadable .docx file.
+- Use the edge function response to create a Blob with proper MIME type.
+- For Word export: generate HTML-based .doc file (simpler than full OOXML).
+- Include tables, interpretation text, and references in the download.
+
+---
+
+## Phase 8: Auto-Save and Persistence (Issue 12)
+
+**File: `src/pages/dashboard/NewAnalysis.tsx`**
+- Add auto-save on step transitions (when user navigates between steps, auto-save current state).
+- Add periodic auto-save every 60 seconds if changes detected.
+- Save analysis state including all variables, hypotheses, and current step.
+
+**File: `src/hooks/useAnalysisWizard.ts`**
+- Fix `saveAnalysis` to cap `current_step` at 13 (now valid after constraint fix).
+- Update status mapping: step >= 11 should be 'completed' or 'reviewing'.
+
+---
+
+## Phase 9: AI Assistant Guidance (Issue 13)
+
+**New file: `src/components/spss-editor/AIAssistantPanel.tsx`**
+- A floating or sidebar panel that provides contextual guidance at each step.
+- Shows as a pulsing light/indicator on important steps.
+- Displays tips like:
+  - Step 1: "Upload your SPSS, Excel, or CSV file"
+  - Step 2: "Assign roles (DV/IV) to your variables for better test recommendations"
+  - Step 4: "Check normality before running parametric tests"
+  - Step 8: "Strong correlations (r > .70) may indicate multicollinearity"
+- Collapsible panel with a lightbulb icon.
+- Each step has 2-3 contextual tips stored as static content (no AI call needed).
+
+**File: `src/pages/dashboard/NewAnalysis.tsx`**
+- Integrate the AIAssistantPanel, showing relevant tips based on `state.currentStep`.
 
 ---
 
 ## Implementation Order
 
-| Order | Task | Dependencies |
-|-------|------|-------------|
-| 1 | Add `correlation-matrix` and `dv-centered-correlation` to edge function | None |
-| 2 | Add `multiple-linear-regression` and `binary-logistic-regression` to edge function | None |
-| 3 | Add `kmo-bartlett` and `factor-analysis` to edge function | None |
-| 4 | Build Step 8 Correlation (3 modes + heatmap + DB storage) | Step 1 |
-| 5 | Build Step 9 Regression (3 model types + diagnostics + DB storage) | Step 2 |
-| 6 | Build Step 10 Measurement (EFA + Reliability + DB storage) | Step 3 |
-| 7 | Update NewAnalysis.tsx for prop passing and state tracking | Steps 4-6 |
+| Order | Task | Files Changed |
+|-------|------|--------------|
+| 1 | DB Migration: update step constraint to 1-13 | Migration SQL |
+| 2 | Step 2: Enhanced AI detection with roles + scale grouping | `detect-variables/index.ts`, `Step2Variables.tsx` |
+| 3 | Step 3: Research question generator + hypothesis improvements | `suggest-analysis/index.ts`, `Step3Research.tsx`, `HypothesisCard.tsx` |
+| 4 | Step 12: Fix section_mapping save + per-section AI buttons | `Step12Theoretical.tsx` |
+| 5 | Step 11: Add real tables inline + per-section regenerate | `generate-chapter4/index.ts`, `Step11AcademicResults.tsx` |
+| 6 | Step 13: Fix download to produce real .doc file | `generate-thesis-doc/index.ts`, `Step13ThesisBinder.tsx` |
+| 7 | Auto-save + persistence | `NewAnalysis.tsx`, `useAnalysisWizard.ts` |
+| 8 | SPSS Brain Analysis auto-pilot button | `StatisticalAnalysisCenter.tsx`, new `useSpssAutoPilot.ts` |
+| 9 | AI Assistant guidance panel | New `AIAssistantPanel.tsx`, `NewAnalysis.tsx` |
 
 ---
 
-## Files to Modify
+## Technical Notes
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/run-analysis/index.ts` | Add 5 new cases: correlation-matrix, dv-centered-correlation, multiple-linear-regression, binary-logistic-regression, kmo-bartlett, factor-analysis |
-| `src/components/spss-editor/Step8Correlation.tsx` | Full rewrite: 3-mode correlation engine with heatmap, scatter plots, SPSS tables |
-| `src/components/spss-editor/Step9Regression.tsx` | Full rewrite: 3 regression model types with diagnostics, VIF, ROC, academic templates |
-| `src/components/spss-editor/Step10Measurement.tsx` | Full rewrite: EFA engine (KMO, extraction, rotation, pattern matrix) + reliability engine |
-| `src/pages/dashboard/NewAnalysis.tsx` | Pass analysisId and hypotheses props to Steps 8-10, update state tracking |
-
-### Key Architecture Rules
-- All statistics computed server-side in `run-analysis` (deterministic, not AI-generated)
-- AI used only for interpretation text formatting
-- All tables and charts saved to `analysis_blocks` -- never regenerated
-- SPSS-style formatting via `.spss-table-academic` CSS class
-- Steps 8-10 integrate with Step 4 normality results (via `analysis_assumptions` table)
-- Step 9 checks Step 8 correlation results before regression modeling
-- All outputs compatible with Step 11-13 academic production and Word export
+- The constraint fix (Phase 1) is the highest priority -- it unblocks saving for Steps 8-13.
+- The `generate-thesis-doc` edge function currently returns plain text strings, not binary file data. The fix will use HTML-to-doc approach (HTML with Word-compatible XML namespace).
+- All edge function changes will be deployed automatically after code changes.
+- No new database tables needed -- all fixes use existing schema.
 
