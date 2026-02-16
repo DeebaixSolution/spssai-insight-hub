@@ -218,14 +218,14 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           <ScrollArea className="h-[600px] border rounded-lg p-6">
             <div className="prose prose-sm dark:prose-invert max-w-none font-serif">
               <h1 className="text-center">Chapter 4: Results and Data Analysis</h1>
-              {status.chapter4.text.split('\n').map((p, i) => p.trim() ? (
+              {String(status.chapter4.text || '').split('\n').map((p, i) => p.trim() ? (
                 p.startsWith('##') ? <h2 key={i}>{p.replace(/^##\s*/, '')}</h2> : <p key={i}>{p}</p>
               ) : null)}
 
               <hr className="my-8" />
 
               <h1 className="text-center">Chapter 5: Discussion and Conclusion</h1>
-              {status.chapter5.text.split('\n').map((p, i) => p.trim() ? (
+              {String(status.chapter5.text || '').split('\n').map((p, i) => p.trim() ? (
                 p.startsWith('##') ? <h2 key={i}>{p.replace(/^##\s*/, '')}</h2> : <p key={i}>{p}</p>
               ) : null)}
 
