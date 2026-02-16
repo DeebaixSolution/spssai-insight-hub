@@ -18,7 +18,7 @@ serve(async (req) => {
 
     console.log('Detecting variable types for', headers.length, 'variables');
 
-    const prompt = `Analyze these dataset variables and determine their measurement level.
+    const prompt = `Analyze these dataset variables and determine their measurement level, role, and scale grouping.
 
 Variables: ${headers.join(', ')}
 
@@ -26,11 +26,19 @@ Sample data (first 5 rows):
 ${JSON.stringify(sampleData.slice(0, 5), null, 2)}
 
 For each variable, determine:
-1. Type: "nominal" (categories with no order), "ordinal" (ordered categories), or "scale" (continuous numbers)
-2. A brief descriptive label
+1. "type": "nominal" (categories with no order), "ordinal" (ordered categories), or "scale" (continuous numbers)
+2. "label": A brief descriptive label
+3. "role": One of:
+   - "id" if it's a unique identifier (e.g., ID, respondent number)
+   - "demographic" if it's a background variable (e.g., gender, age group, education level)
+   - "dependent" if it appears to be a dependent/outcome variable
+   - "independent" if it appears to be an independent/predictor variable
+   - "scale_item" if it's a Likert-scale item or questionnaire item (e.g., Q1, Q2, item_1, satisfaction_1)
+4. "scaleGroup": If role is "scale_item", group related items under a common scale name (e.g., "Job Satisfaction", "Organizational Commitment"). Use null for non-scale items.
+5. "valueLabels": For nominal/ordinal variables, provide a mapping of numeric codes to labels if detectable from the data (e.g., {"1": "Male", "2": "Female"}). Use null for scale variables.
 
 Return JSON array:
-[{"name": "var1", "type": "scale", "label": "Age in years"}, ...]`;
+[{"name": "var1", "type": "scale", "label": "Age in years", "role": "demographic", "scaleGroup": null, "valueLabels": null}, ...]`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -41,10 +49,10 @@ Return JSON array:
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: 'You are a statistics expert. Analyze dataset variables and return JSON only.' },
+          { role: 'system', content: 'You are a statistics expert specializing in SPSS data analysis. Analyze dataset variables and return JSON only. Be precise about identifying scale items (Likert items, questionnaire items) and grouping them into their parent scales.' },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 1000,
+        max_tokens: 2000,
       }),
     });
 

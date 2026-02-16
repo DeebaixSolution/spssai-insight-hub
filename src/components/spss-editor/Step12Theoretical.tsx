@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Lightbulb, Crown, RefreshCw, Save, AlertTriangle, CheckCircle, BookOpen, Plus, Trash2 } from 'lucide-react';
+import { Lightbulb, Crown, RefreshCw, Save, AlertTriangle, CheckCircle, BookOpen, Plus, Trash2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -49,6 +49,7 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
   const [mode, setMode] = useState<'free' | 'pro'>(isPro ? 'pro' : 'free');
   const [activeTab, setActiveTab] = useState('setup');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
   const [sections, setSections] = useState<Record<string, string>>({});
   const [editingSection, setEditingSection] = useState<string | null>(null);
   const [savedChapter, setSavedChapter] = useState<any>(null);
@@ -57,8 +58,6 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
   });
   const [citations, setCitations] = useState<Citation[]>([]);
   const [newCitation, setNewCitation] = useState<Partial<Citation>>({});
-
-  // Advisory indicators
   const [advisoryItems, setAdvisoryItems] = useState<{ type: 'strength' | 'weakness' | 'suggestion'; message: string }[]>([]);
 
   useEffect(() => {
@@ -78,7 +77,6 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         setSavedChapter(discRes.data[0]);
         const saved = discRes.data[0];
         if (saved.chapter5_text) {
-          // Parse sections from saved text
           const parsed: Record<string, string> = {};
           CHAPTER_5_SECTIONS.forEach(s => { parsed[s.id] = ''; });
           const mapping = (saved as any).section_mapping as Record<string, unknown> | undefined;
@@ -106,15 +104,12 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
       toast.error('No analysis ID. Save your analysis first.');
       return;
     }
-
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-chapter5', {
         body: { analysisId, mode, theoryInput: mode === 'pro' ? theoryInput : null, citations },
       });
-
       if (error) throw error;
-
       if (data?.sections) {
         setSections(data.sections);
         if (data.advisory) setAdvisoryItems(data.advisory);
@@ -129,6 +124,26 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
     }
   };
 
+  // Regenerate single section
+  const handleRegenerateSection = async (sectionId: string) => {
+    if (!analysisId) return;
+    setRegeneratingSection(sectionId);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-chapter5', {
+        body: { analysisId, mode, theoryInput: mode === 'pro' ? theoryInput : null, citations, sectionId },
+      });
+      if (error) throw error;
+      if (data?.sections?.[sectionId]) {
+        setSections(prev => ({ ...prev, [sectionId]: data.sections[sectionId] }));
+        toast.success(`Section regenerated!`);
+      }
+    } catch (err) {
+      toast.error('Failed to regenerate section.');
+    } finally {
+      setRegeneratingSection(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!analysisId) return;
     try {
@@ -137,6 +152,7 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
       const record = {
         analysis_id: analysisId,
         chapter5_text: fullText,
+        section_mapping: sections as any,
         mode,
         theory_input: theoryInput as any,
         citations_used: citations.map(c => c.id) as any,
@@ -149,16 +165,12 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         await supabase.from('discussion_chapter').insert([record]);
       }
 
-      // Save citations
+      // Save new citations
       for (const c of citations) {
         if (!c.id.startsWith('local-')) continue;
         await supabase.from('citations').insert([{
           analysis_id: analysisId,
-          author: c.author,
-          year: c.year,
-          title: c.title,
-          journal: c.journal,
-          doi: c.doi,
+          author: c.author, year: c.year, title: c.title, journal: c.journal, doi: c.doi,
           formatted_reference: `${c.author} (${c.year}). ${c.title}. ${c.journal}.`,
         }]);
       }
@@ -195,7 +207,6 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         {savedChapter && <Badge variant="secondary">v{savedChapter.version}</Badge>}
       </div>
 
-      {/* Mode Selection */}
       <div className="flex gap-2">
         <Button variant={mode === 'free' ? 'default' : 'outline'} onClick={() => setMode('free')} size="sm">
           Basic Discussion
@@ -203,8 +214,7 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         <Button
           variant={mode === 'pro' ? 'default' : 'outline'}
           onClick={() => isPro ? setMode('pro') : toast.error('PRO required')}
-          size="sm"
-          className="gap-1"
+          size="sm" className="gap-1"
         >
           <Crown className="w-3.5 h-3.5" /> Advanced Academic
         </Button>
@@ -226,18 +236,16 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
               <><BookOpen className="w-4 h-4 mr-2" /> Generate Discussion & Conclusion – Academic Mode</>
             )}
           </Button>
-
           {!analysisId && (
             <Alert>
               <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>Complete and save your analysis (Steps 4-10) before generating Chapter 5.</AlertDescription>
+              <AlertDescription>Complete and save your analysis first.</AlertDescription>
             </Alert>
           )}
         </TabsContent>
 
         {mode === 'pro' && (
           <TabsContent value="theory" className="space-y-4">
-            {/* Theory Input */}
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label>Theory Name</Label>
@@ -257,12 +265,10 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
               </div>
             </div>
 
-            {/* Citation Manager */}
             <div className="border rounded-lg p-4 space-y-3">
               <h4 className="text-sm font-medium flex items-center gap-2">
                 <BookOpen className="w-4 h-4" /> Reference Manager ({citations.length})
               </h4>
-
               {citations.map(c => (
                 <div key={c.id} className="flex items-center justify-between bg-muted/50 rounded p-2 text-xs">
                   <span>{c.author} ({c.year}). <em>{c.title}</em>. {c.journal}</span>
@@ -271,7 +277,6 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
                   </Button>
                 </div>
               ))}
-
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="Author" value={newCitation.author || ''} onChange={e => setNewCitation(p => ({ ...p, author: e.target.value }))} />
                 <Input placeholder="Year" value={newCitation.year || ''} onChange={e => setNewCitation(p => ({ ...p, year: e.target.value }))} />
@@ -292,7 +297,7 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
               <Save className="w-4 h-4 mr-2" /> Save Draft
             </Button>
             <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
-              <RefreshCw className="w-4 h-4 mr-2" /> Regenerate
+              <RefreshCw className="w-4 h-4 mr-2" /> Regenerate All
             </Button>
           </div>
 
@@ -302,9 +307,19 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
                 <div key={s.id} className="border rounded-lg overflow-hidden">
                   <div className="bg-muted px-4 py-2 flex items-center justify-between">
                     <h4 className="text-sm font-semibold">{s.number} {s.title}</h4>
-                    <Button variant="ghost" size="sm" onClick={() => setEditingSection(editingSection === s.id ? null : s.id)}>
-                      {editingSection === s.id ? 'Preview' : 'Edit'}
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => handleRegenerateSection(s.id)}
+                        disabled={regeneratingSection === s.id}
+                      >
+                        {regeneratingSection === s.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                        <span className="ml-1 text-xs">AI</span>
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEditingSection(editingSection === s.id ? null : s.id)}>
+                        {editingSection === s.id ? 'Preview' : 'Edit'}
+                      </Button>
+                    </div>
                   </div>
                   <div className="p-4">
                     {editingSection === s.id ? (
@@ -316,9 +331,9 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
                     ) : (
                       <div className="prose prose-sm dark:prose-invert max-w-none font-serif">
                         {sections[s.id] ? (
-                          String(sections[s.id]).split('\n').map((p, i) => <p key={i}>{p}</p>)
+                          String(sections[s.id]).split('\n').map((p, i) => p.trim() ? <p key={i}>{p}</p> : null)
                         ) : (
-                          <p className="text-muted-foreground italic">No content yet.</p>
+                          <p className="text-muted-foreground italic">No content yet. Click AI to generate.</p>
                         )}
                       </div>
                     )}

@@ -440,7 +440,7 @@ export function useAnalysisWizard() {
         ai_interpretation: analysisData.aiInterpretation || state.aiInterpretation || null,
         apa_results: analysisData.apaResults || state.apaResults || null,
         discussion: analysisData.discussion || state.discussion || null,
-        status: (analysisData.currentStep === 7 ? 'completed' : 'configuring') as 'draft' | 'configuring' | 'running' | 'completed' | 'failed',
+        status: ((analysisData.currentStep || state.currentStep) >= 11 ? 'completed' : 'configuring') as 'draft' | 'configuring' | 'running' | 'completed' | 'failed',
       };
 
       if (state.analysisId) {

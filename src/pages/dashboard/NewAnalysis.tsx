@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LayerNavigation } from '@/components/spss-editor/LayerNavigation';
 import { StepProgress } from '@/components/spss-editor/StepProgress';
 import { StepNavigation } from '@/components/spss-editor/StepNavigation';
 import { StatisticalAnalysisCenter } from '@/components/spss-editor/StatisticalAnalysisCenter';
 import { AcademicProductionLayer } from '@/components/spss-editor/AcademicProductionLayer';
+import { AIAssistantPanel } from '@/components/spss-editor/AIAssistantPanel';
 import { Step1Upload } from '@/components/spss-editor/Step1Upload';
 import { Step2Variables } from '@/components/spss-editor/Step2Variables';
 import { Step3Research } from '@/components/spss-editor/Step3Research';
@@ -24,7 +25,6 @@ import { usePlanLimits } from '@/hooks/usePlanLimits';
 import { UpgradePrompt } from '@/components/plan/UpgradePrompt';
 import { toast } from 'sonner';
 
-// Layer 1 steps for the mini-progress within Research Design
 const layer1Steps = [
   { number: 1, title: 'Upload Data' },
   { number: 2, title: 'Variables' },
@@ -40,6 +40,7 @@ export default function NewAnalysis() {
   const [suggestedTest, setSuggestedTest] = useState<{ category: string; type: string } | undefined>();
   const [isSaving, setIsSaving] = useState(false);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
   const {
     state,
@@ -56,14 +57,12 @@ export default function NewAnalysis() {
     isSavingAnalysis,
   } = useAnalysisWizard();
 
-  // Check if user can create analysis
   useEffect(() => {
     if (!canCreateAnalysis()) {
       setShowUpgrade(true);
     }
   }, [canCreateAnalysis]);
 
-  // Load existing analysis if passed via router state
   useEffect(() => {
     const analysisId = (location.state as { analysisId?: string })?.analysisId;
     if (analysisId) {
@@ -71,12 +70,37 @@ export default function NewAnalysis() {
     }
   }, [location.state, loadAnalysis]);
 
-  // Track completed steps
+  // Auto-save every 60 seconds
+  useEffect(() => {
+    if (!state.projectId || !state.datasetId) return;
+
+    autoSaveTimer.current = setInterval(async () => {
+      try {
+        await saveAnalysis({
+          currentStep: state.currentStep,
+          researchQuestion: state.researchQuestion,
+          hypothesis: state.hypothesis,
+          analysisConfig: state.analysisConfig,
+          results: state.results,
+          aiInterpretation: state.aiInterpretation,
+          apaResults: state.apaResults,
+          discussion: state.discussion,
+        });
+        console.log('Auto-saved at', new Date().toLocaleTimeString());
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+      }
+    }, 60000);
+
+    return () => {
+      if (autoSaveTimer.current) clearInterval(autoSaveTimer.current);
+    };
+  }, [state.projectId, state.datasetId, state.currentStep]);
+
   const markStepCompleted = useCallback((step: number) => {
     setCompletedSteps(prev => new Set([...prev, step]));
   }, []);
 
-  // Determine current layer
   const currentLayer = useMemo(() => {
     if (state.currentStep <= 3) return 1;
     if (state.currentStep <= 10) return 2;
@@ -85,28 +109,18 @@ export default function NewAnalysis() {
 
   const canProceed = () => {
     switch (state.currentStep) {
-      case 1:
-        return !!state.parsedData && !!state.projectName.trim();
-      case 2:
-        return state.variables.length > 0;
-      case 3:
-        return true; // Optional step
-      case 4:
-        return completedSteps.has(4);
-      case 5: case 6: case 7: case 8: case 9: case 10:
-        return true; // Optional tabs within Layer 2
-      case 11: case 12:
-        return true;
-      case 13:
-        return true;
-      default:
-        return false;
+      case 1: return !!state.parsedData && !!state.projectName.trim();
+      case 2: return state.variables.length > 0;
+      case 3: return true;
+      case 4: return completedSteps.has(4);
+      case 5: case 6: case 7: case 8: case 9: case 10: return true;
+      case 11: case 12: case 13: return true;
+      default: return false;
     }
   };
 
   const handleNext = async () => {
     try {
-      // Step 1 -> 2: Create project and save dataset
       if (state.currentStep === 1 && state.parsedData) {
         const project = await createProject(state.projectName);
         await saveDataset({ projectId: project.id, parsedData: state.parsedData });
@@ -115,26 +129,27 @@ export default function NewAnalysis() {
         markStepCompleted(1);
       }
 
-      // Mark current step completed on advance
-      if (state.currentStep === 2 && state.variables.length > 0) {
-        markStepCompleted(2);
-      }
-      if (state.currentStep === 3) {
-        markStepCompleted(3);
-      }
+      if (state.currentStep === 2 && state.variables.length > 0) markStepCompleted(2);
+      if (state.currentStep === 3) markStepCompleted(3);
+      if (state.currentStep >= 4 && state.currentStep <= 10) markStepCompleted(state.currentStep);
+      if (state.currentStep === 12) markStepCompleted(12);
 
-      // Step transitions within Layer 2
-      if (state.currentStep >= 4 && state.currentStep <= 9) {
-        markStepCompleted(state.currentStep);
-      }
-
-      // Save analysis config at key transitions
-      if (state.currentStep === 10) {
-        markStepCompleted(10);
-      }
-
-      if (state.currentStep === 12) {
-        markStepCompleted(12);
+      // Auto-save on step transitions
+      if (state.projectId && state.datasetId) {
+        try {
+          await saveAnalysis({
+            currentStep: state.currentStep + 1,
+            researchQuestion: state.researchQuestion,
+            hypothesis: state.hypothesis,
+            analysisConfig: state.analysisConfig,
+            results: state.results,
+            aiInterpretation: state.aiInterpretation,
+            apaResults: state.apaResults,
+            discussion: state.discussion,
+          });
+        } catch (err) {
+          console.error('Auto-save on transition failed:', err);
+        }
       }
 
       nextStep();
@@ -194,9 +209,7 @@ export default function NewAnalysis() {
   const canSave = state.currentStep >= 1 &&
     Boolean(state.projectId || (state.parsedData && state.projectName.trim()));
 
-  // Render step content based on current layer
   const renderStepContent = () => {
-    // Layer 1: Research Design (Steps 1-3)
     if (currentLayer === 1) {
       return (
         <>
@@ -231,21 +244,19 @@ export default function NewAnalysis() {
       );
     }
 
-    // Layer 2: Statistical Analysis Center (Steps 4-10)
     if (currentLayer === 2) {
       return (
         <StatisticalAnalysisCenter
           currentStep={state.currentStep}
           completedSteps={completedSteps}
           onTabClick={goToStep}
+          analysisId={state.analysisId}
+          variables={state.variables}
+          hypotheses={state.hypotheses}
+          parsedData={state.parsedData}
         >
           {state.currentStep === 4 && (
-            <Step4Descriptive
-              variables={state.variables}
-              parsedData={state.parsedData}
-              analysisId={state.analysisId}
-              onComplete={() => markStepCompleted(4)}
-            />
+            <Step4Descriptive variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} onComplete={() => markStepCompleted(4)} />
           )}
           {state.currentStep === 5 && (
             <Step5Parametric variables={state.variables} parsedData={state.parsedData} analysisId={state.analysisId} hypotheses={state.hypotheses} />
@@ -269,7 +280,6 @@ export default function NewAnalysis() {
       );
     }
 
-    // Layer 3: Academic Production (Steps 11-13)
     return (
       <AcademicProductionLayer
         currentStep={state.currentStep}
@@ -285,27 +295,18 @@ export default function NewAnalysis() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* 3-Layer Navigation */}
-      <LayerNavigation
-        currentStep={state.currentStep}
-        completedSteps={completedSteps}
-        onLayerClick={goToStep}
-      />
+      <LayerNavigation currentStep={state.currentStep} completedSteps={completedSteps} onLayerClick={goToStep} />
 
-      {/* Layer 1: Show step progress within Research Design */}
       {currentLayer === 1 && (
-        <StepProgress
-          steps={layer1Steps}
-          currentStep={state.currentStep}
-          onStepClick={goToStep}
-        />
+        <StepProgress steps={layer1Steps} currentStep={state.currentStep} onStepClick={goToStep} />
       )}
 
-      {/* Step Content */}
+      {/* AI Assistant Panel */}
+      <AIAssistantPanel currentStep={state.currentStep} />
+
       <div className="data-card">
         {renderStepContent()}
 
-        {/* Navigation */}
         <StepNavigation
           currentStep={state.currentStep}
           totalSteps={13}
@@ -321,12 +322,7 @@ export default function NewAnalysis() {
         />
       </div>
 
-      {/* Upgrade Prompt */}
-      <UpgradePrompt
-        open={showUpgrade}
-        onOpenChange={setShowUpgrade}
-        feature="more analyses"
-      />
+      <UpgradePrompt open={showUpgrade} onOpenChange={setShowUpgrade} feature="more analyses" />
     </div>
   );
 }
