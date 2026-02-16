@@ -19,7 +19,7 @@ interface ChapterStatus {
   chapter4: { exists: boolean; version: number; text: string };
   chapter5: { exists: boolean; version: number; text: string };
   citations: { count: number; items: any[] };
-  blocks: { count: number };
+  blocks: { count: number; items: any[] };
 }
 
 export function Step13ThesisBinder({ analysisId }: Step13Props) {
@@ -29,7 +29,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
     chapter4: { exists: false, version: 0, text: '' },
     chapter5: { exists: false, version: 0, text: '' },
     citations: { count: 0, items: [] },
-    blocks: { count: 0 },
+    blocks: { count: 0, items: [] },
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -48,7 +48,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
         supabase.from('chapter_results').select('*').eq('analysis_id', analysisId).order('created_at', { ascending: false }).limit(1),
         supabase.from('discussion_chapter').select('*').eq('analysis_id', analysisId).order('created_at', { ascending: false }).limit(1),
         supabase.from('citations').select('*').eq('analysis_id', analysisId),
-        supabase.from('analysis_blocks').select('id').eq('analysis_id', analysisId),
+        supabase.from('analysis_blocks').select('*').eq('analysis_id', analysisId).order('display_order'),
         supabase.from('thesis_exports').select('*').eq('analysis_id', analysisId).order('created_at', { ascending: false }),
       ]);
 
@@ -56,7 +56,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
         chapter4: { exists: !!ch4.data?.[0], version: ch4.data?.[0]?.version || 0, text: ch4.data?.[0]?.full_text || '' },
         chapter5: { exists: !!ch5.data?.[0], version: ch5.data?.[0]?.version || 0, text: ch5.data?.[0]?.chapter5_text || '' },
         citations: { count: cit.data?.length || 0, items: cit.data || [] },
-        blocks: { count: blocks.data?.length || 0 },
+        blocks: { count: blocks.data?.length || 0, items: blocks.data || [] },
       });
       setExports(exps.data || []);
     } catch (err) {
@@ -80,9 +80,16 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           analysisId,
           format,
           isPro,
-          chapter4Text: status.chapter4.text,
-          chapter5Text: status.chapter5.text,
+          chapter4Text: String(status.chapter4.text || ''),
+          chapter5Text: String(status.chapter5.text || ''),
           citations: status.citations.items,
+          analysisBlocks: status.blocks.items.map(b => ({
+            id: b.id,
+            test_type: b.test_type,
+            test_category: b.test_category,
+            results: b.results,
+            narrative: b.narrative,
+          })),
         },
       });
 
@@ -94,31 +101,35 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
         user_id: user.id,
         export_type: format,
         version: Math.max(status.chapter4.version, status.chapter5.version),
-        file_url: data?.fileUrl || null,
+        file_url: null,
       }]);
 
       if (data?.content) {
-        // Download the file
-        const blob = new Blob([data.content], { type: format === 'word' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf' });
+        // Create HTML-based .doc file download
+        const blob = new Blob([data.content], { 
+          type: 'application/msword'
+        });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `thesis-chapter4-5.${format === 'word' ? 'docx' : 'pdf'}`;
+        a.download = `thesis-chapters-4-5.doc`;
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        toast.success('Document downloaded successfully!');
       }
 
-      toast.success(`${format.toUpperCase()} export complete!`);
       fetchStatus();
     } catch (err) {
       console.error('Export error:', err);
-      toast.error(`Failed to export ${format.toUpperCase()}.`);
+      toast.error(`Failed to export document.`);
     } finally {
       setIsExporting(false);
     }
   };
 
-  const readyToExport = status.chapter4.exists && status.chapter5.exists;
+  const readyToExport = status.chapter4.exists || status.chapter5.exists;
 
   return (
     <div className="space-y-6">
@@ -142,7 +153,6 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
         </TabsList>
 
         <TabsContent value="status" className="space-y-4">
-          {/* Chapter Status */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className={cn(
               'border rounded-lg p-4',
@@ -177,13 +187,12 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
             </div>
           </div>
 
-          {/* Export Options */}
           <div className="border rounded-lg p-4 space-y-3">
             <h4 className="font-medium">Export Options</h4>
             <div className="flex gap-3">
               <Button onClick={() => handleExport('word')} disabled={!readyToExport || isExporting} className="flex-1">
                 {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                Export Word (.docx)
+                Export Word (.doc)
               </Button>
               <Button
                 onClick={() => handleExport('pdf')}
@@ -196,10 +205,9 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
                 Export PDF {!isPro && '(PRO)'}
               </Button>
             </div>
-
             {!isPro && (
               <p className="text-xs text-muted-foreground">
-                Free plan: Partial export with watermark. Upgrade to PRO for full thesis export.
+                Free plan: Partial export with watermark. Upgrade for full thesis export.
               </p>
             )}
           </div>
@@ -207,9 +215,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           {!readyToExport && (
             <Alert>
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Both Chapter 4 (Step 11) and Chapter 5 (Step 12) must be generated before exporting.
-              </AlertDescription>
+              <AlertDescription>Generate at least Chapter 4 or Chapter 5 before exporting.</AlertDescription>
             </Alert>
           )}
         </TabsContent>
@@ -254,9 +260,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
                   <span className="text-sm font-medium">{exp.export_type.toUpperCase()} Export</span>
                   <span className="text-xs text-muted-foreground ml-2">v{exp.version}</span>
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(exp.created_at).toLocaleDateString()}
-                </span>
+                <span className="text-xs text-muted-foreground">{new Date(exp.created_at).toLocaleDateString()}</span>
               </div>
             ))
           )}

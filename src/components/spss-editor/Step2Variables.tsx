@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Wand2, Edit2, Save, X, Tag, Users, Layers, GripVertical } from 'lucide-react';
+import { Wand2, Edit2, Save, X, Tag, Users, Layers, GripVertical, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,8 +24,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Variable, ParsedDataset } from '@/hooks/useAnalysisWizard';
 import { VariableRole, VariableMeasure } from '@/types/analysis';
-import { usePlanLimits } from '@/hooks/usePlanLimits';
-import { PlanGate } from '@/components/plan/PlanGate';
 import { VariableIntelligencePanel } from './VariableIntelligencePanel';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
@@ -67,7 +65,6 @@ export function Step2Variables({
   onVariablesChange,
   parsedData,
 }: Step2VariablesProps) {
-  const { isPro } = usePlanLimits();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingVariable, setEditingVariable] = useState<Variable | null>(null);
   const [valueLabelsOpen, setValueLabelsOpen] = useState(false);
@@ -77,7 +74,6 @@ export function Step2Variables({
   const [scaleGroupName, setScaleGroupName] = useState('');
   const [isDetecting, setIsDetecting] = useState(false);
 
-  // Get unique values for a variable (for value labels suggestions)
   const getUniqueValues = (varName: string): string[] => {
     if (!parsedData) return [];
     const values = new Set<string>();
@@ -87,7 +83,7 @@ export function Step2Variables({
         values.add(String(val));
       }
     });
-    return Array.from(values).slice(0, 20); // Limit to 20 unique values
+    return Array.from(values).slice(0, 20);
   };
 
   const handleEdit = (index: number) => {
@@ -173,8 +169,9 @@ export function Step2Variables({
     toast.success(`Created scale group: ${scaleGroupName}`);
   };
 
-  const handleAIDetection = async () => {
-    if (!isPro || !parsedData) return;
+  // AI Detect & Group - enhanced detection with roles, measures, value labels, and scale grouping
+  const handleAIDetectAndGroup = async () => {
+    if (!parsedData) return;
 
     setIsDetecting(true);
     try {
@@ -190,21 +187,26 @@ export function Step2Variables({
       if (data?.variables) {
         const updatedVariables = variables.map((v) => {
           const detected = data.variables.find(
-            (d: { name: string; type: string; label?: string; role?: string }) => d.name === v.name
+            (d: any) => d.name === v.name
           );
           if (detected) {
             return {
               ...v,
-              type: detected.type as VariableMeasure,
-              measure: detected.type as VariableMeasure,
+              type: (detected.type as VariableMeasure) || v.type,
+              measure: (detected.type as VariableMeasure) || v.measure,
               label: detected.label || v.label,
               role: (detected.role as VariableRole) || v.role,
+              scaleGroup: detected.scaleGroup || v.scaleGroup,
+              valueLabels: detected.valueLabels || v.valueLabels,
             };
           }
           return v;
         });
         onVariablesChange(updatedVariables);
-        toast.success('AI detection complete! Variable types and roles updated.');
+        
+        const scaleItems = updatedVariables.filter(v => v.role === 'scale_item');
+        const groups = [...new Set(scaleItems.map(v => v.scaleGroup).filter(Boolean))];
+        toast.success(`AI detection complete! ${updatedVariables.length} variables configured, ${groups.length} scale groups detected.`);
       }
     } catch (err) {
       console.error('AI detection error:', err);
@@ -239,17 +241,15 @@ export function Step2Variables({
             <Layers className="w-4 h-4 mr-2" />
             Group Scale Items
           </Button>
-          <PlanGate feature="aiVariableDetection" showOverlay={false}>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleAIDetection}
-              disabled={isDetecting}
-            >
-              <Wand2 className="w-4 h-4 mr-2" />
-              {isDetecting ? 'Detecting...' : 'AI Detect'}
-            </Button>
-          </PlanGate>
+          <Button
+            size="sm"
+            onClick={handleAIDetectAndGroup}
+            disabled={isDetecting}
+            className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground"
+          >
+            <Brain className="w-4 h-4 mr-2" />
+            {isDetecting ? 'Detecting...' : 'AI Detect & Group'}
+          </Button>
         </div>
       </div>
 
@@ -441,7 +441,7 @@ export function Step2Variables({
                       >
                         <Tag className="w-3 h-3 mr-1" />
                         {Object.keys(v.valueLabels || {}).length > 0
-                          ? `${Object.keys(v.valueLabels).length} labels`
+                          ? `${Object.keys(v.valueLabels || {}).length} labels`
                           : 'None'}
                       </Button>
                     </td>
@@ -449,10 +449,10 @@ export function Step2Variables({
                       {isEditing ? (
                         <div className="flex gap-1">
                           <Button variant="ghost" size="sm" onClick={handleSave} className="h-7 w-7 p-0">
-                            <Save className="w-3 h-3" />
+                            <Save className="w-3 h-3 text-green-600" />
                           </Button>
                           <Button variant="ghost" size="sm" onClick={handleCancel} className="h-7 w-7 p-0">
-                            <X className="w-3 h-3" />
+                            <X className="w-3 h-3 text-destructive" />
                           </Button>
                         </div>
                       ) : (
@@ -470,29 +470,38 @@ export function Step2Variables({
         </ScrollArea>
       </div>
 
-      {/* Variable Intelligence Panel */}
-      <VariableIntelligencePanel variables={variables} parsedData={parsedData} />
-
       {/* Value Labels Dialog */}
       <Dialog open={valueLabelsOpen} onOpenChange={setValueLabelsOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Value Labels: {valueLabelsVariable?.name}</DialogTitle>
             <DialogDescription>
-              Define labels for numeric codes (e.g., 1 = "Male", 2 = "Female")
+              Assign labels to numeric codes (like SPSS value labels)
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4">
-            {valueLabelsVariable && (
-              <ValueLabelsEditor
-                valueLabels={valueLabelsVariable.valueLabels || {}}
-                onChange={(labels) => setValueLabelsVariable({ ...valueLabelsVariable, valueLabels: labels })}
-                suggestedValues={getUniqueValues(valueLabelsVariable.name)}
-              />
-            )}
-          </div>
-
+          {valueLabelsVariable && (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto">
+              {getUniqueValues(valueLabelsVariable.name).map((val) => (
+                <div key={val} className="flex items-center gap-2">
+                  <Badge variant="outline" className="min-w-[40px] justify-center">{val}</Badge>
+                  <Input
+                    value={valueLabelsVariable.valueLabels?.[val] || ''}
+                    onChange={(e) => {
+                      setValueLabelsVariable({
+                        ...valueLabelsVariable,
+                        valueLabels: {
+                          ...valueLabelsVariable.valueLabels,
+                          [val]: e.target.value,
+                        },
+                      });
+                    }}
+                    placeholder={`Label for ${val}...`}
+                    className="h-8"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setValueLabelsOpen(false)}>Cancel</Button>
             <Button onClick={saveValueLabels}>Save Labels</Button>
@@ -506,152 +515,43 @@ export function Step2Variables({
           <DialogHeader>
             <DialogTitle>Group Scale Items</DialogTitle>
             <DialogDescription>
-              Select items that belong to the same scale construct (e.g., Q1_1 to Q1_5 for "Satisfaction Scale")
+              Select items that belong to the same scale (e.g., Likert items for one construct)
             </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Scale Name</Label>
               <Input
                 value={scaleGroupName}
                 onChange={(e) => setScaleGroupName(e.target.value)}
-                placeholder="e.g., Satisfaction Scale, Anxiety Scale"
+                placeholder="e.g., Job Satisfaction, Organizational Commitment"
               />
             </div>
-
             <div className="space-y-2">
-              <Label>Select Scale Items ({selectedForScale.size} selected)</Label>
-              <ScrollArea className="h-[200px] border rounded-lg p-2">
-                {variables.filter(v => v.measure === 'scale' || v.measure === 'ordinal').map((v) => (
-                  <div key={v.name} className="flex items-center gap-2 py-1">
-                    <Checkbox
-                      checked={selectedForScale.has(v.name)}
-                      onCheckedChange={() => toggleScaleSelection(v.name)}
-                    />
+              <Label>Select Items ({selectedForScale.size} selected)</Label>
+              <ScrollArea className="h-[250px] border rounded-lg p-2">
+                {variables.map((v) => (
+                  <div
+                    key={v.name}
+                    className="flex items-center gap-3 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                    onClick={() => toggleScaleSelection(v.name)}
+                  >
+                    <Checkbox checked={selectedForScale.has(v.name)} />
                     <span className="font-mono text-sm">{v.name}</span>
-                    {v.label && <span className="text-xs text-muted-foreground">({v.label})</span>}
+                    <span className="text-xs text-muted-foreground">{v.label || v.type}</span>
                   </div>
                 ))}
               </ScrollArea>
             </div>
           </div>
-
           <DialogFooter>
             <Button variant="outline" onClick={() => setScaleGroupOpen(false)}>Cancel</Button>
-            <Button onClick={saveScaleGroup} disabled={selectedForScale.size < 2}>
-              Create Scale Group
+            <Button onClick={saveScaleGroup} disabled={selectedForScale.size < 2 || !scaleGroupName.trim()}>
+              Create Group
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Legend */}
-      <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-        <h4 className="text-sm font-medium text-foreground">Variable Roles:</h4>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-          {variableRoles.filter(r => r.value !== null).map((role) => (
-            <div key={role.value} className="flex items-center gap-2">
-              <div className={cn('w-3 h-3 rounded-full', role.color)} />
-              <span className="font-medium text-foreground">{role.label}:</span>
-              <span className="text-muted-foreground">{role.description}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Value Labels Editor Component
-function ValueLabelsEditor({
-  valueLabels,
-  onChange,
-  suggestedValues,
-}: {
-  valueLabels: Record<string, string>;
-  onChange: (labels: Record<string, string>) => void;
-  suggestedValues: string[];
-}) {
-  const entries = Object.entries(valueLabels);
-  const [newValue, setNewValue] = useState('');
-  const [newLabel, setNewLabel] = useState('');
-
-  const addEntry = () => {
-    if (newValue && newLabel) {
-      onChange({ ...valueLabels, [newValue]: newLabel });
-      setNewValue('');
-      setNewLabel('');
-    }
-  };
-
-  const removeEntry = (value: string) => {
-    const newLabels = { ...valueLabels };
-    delete newLabels[value];
-    onChange(newLabels);
-  };
-
-  const addSuggested = (value: string) => {
-    if (!valueLabels[value]) {
-      setNewValue(value);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Existing labels */}
-      {entries.length > 0 && (
-        <div className="space-y-2">
-          {entries.map(([value, label]) => (
-            <div key={value} className="flex items-center gap-2">
-              <Input value={value} disabled className="w-20" />
-              <span className="text-muted-foreground">=</span>
-              <Input value={label} disabled className="flex-1" />
-              <Button variant="ghost" size="sm" onClick={() => removeEntry(value)} className="h-8 w-8 p-0">
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add new label */}
-      <div className="flex items-center gap-2">
-        <Input
-          placeholder="Value"
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-          className="w-20"
-        />
-        <span className="text-muted-foreground">=</span>
-        <Input
-          placeholder="Label"
-          value={newLabel}
-          onChange={(e) => setNewLabel(e.target.value)}
-          className="flex-1"
-          onKeyDown={(e) => e.key === 'Enter' && addEntry()}
-        />
-        <Button variant="outline" size="sm" onClick={addEntry} className="h-8">Add</Button>
-      </div>
-
-      {/* Suggested values */}
-      {suggestedValues.length > 0 && suggestedValues.some(v => !valueLabels[v]) && (
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Detected values (click to add):</Label>
-          <div className="flex flex-wrap gap-1">
-            {suggestedValues.filter(v => !valueLabels[v]).slice(0, 10).map((value) => (
-              <Badge
-                key={value}
-                variant="outline"
-                className="cursor-pointer hover:bg-primary/10"
-                onClick={() => addSuggested(value)}
-              >
-                {value}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
