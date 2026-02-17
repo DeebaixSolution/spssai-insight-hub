@@ -239,13 +239,13 @@ const AIChat = () => {
         <div className="flex items-center gap-3">
           {/* Dataset Context Selector (Pro) */}
           {isPro && datasets.length > 0 && (
-            <Select value={selectedDataset} onValueChange={setSelectedDataset}>
+            <Select value={selectedDataset || 'none'} onValueChange={(val) => setSelectedDataset(val === 'none' ? '' : val)}>
               <SelectTrigger className="w-[200px]">
                 <Database className="w-4 h-4 mr-2" />
                 <SelectValue placeholder="Add context..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">No context</SelectItem>
+                <SelectItem value="none">No context</SelectItem>
                 {datasets.map((d) => (
                   <SelectItem key={d.id} value={d.id}>
                     {d.file_name}
