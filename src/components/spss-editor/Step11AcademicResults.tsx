@@ -49,13 +49,13 @@ const CHAPTER_SECTIONS = [
 ];
 
 const sectionCategoryMap: Record<string, string[]> = {
-  sample: ['descriptive'],
+  sample: ['descriptive', 'normality'],
   measurement: ['factor-analysis', 'measurement-validation'],
-  descriptive: ['descriptive'],
+  descriptive: ['descriptive', 'normality'],
   reliability: ['reliability', 'measurement-validation'],
   correlation: ['correlation'],
   regression: ['regression'],
-  hypothesis: ['compare-means', 'nonparametric'],
+  hypothesis: ['compare-means', 'nonparametric', 'anova', 'parametric'],
   diagnostics: ['regression'],
   integrated: [],
   summary: [],
@@ -113,17 +113,18 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
 
   const getBlocksForSection = (sectionId: string, allBlocks: AnalysisBlockData[]): AnalysisBlockData[] => {
     const categories = sectionCategoryMap[sectionId] || [];
-    return allBlocks.filter(b => categories.includes(b.test_category) && b.status === 'completed');
+    // Include blocks regardless of status — auto-pilot may save with any status
+    return allBlocks.filter(b => categories.includes(b.test_category) && b.status !== 'pending');
   };
 
   const stepStatus = useMemo(() => {
-    const categories = new Set(blocks.filter(b => b.status === 'completed').map(b => b.test_category));
+    const categories = new Set(blocks.filter(b => b.status !== 'pending').map(b => b.test_category));
     return {
-      descriptive: categories.has('descriptive'),
+      descriptive: categories.has('descriptive') || categories.has('normality'),
       reliability: categories.has('reliability') || categories.has('measurement-validation'),
       correlation: categories.has('correlation'),
       regression: categories.has('regression'),
-      hypothesis: blocks.some(b => (b.section === 'hypothesis' || b.test_category === 'compare-means' || b.test_category === 'nonparametric') && b.status === 'completed'),
+      hypothesis: blocks.some(b => ['compare-means', 'nonparametric', 'anova', 'parametric'].includes(b.test_category) && b.status !== 'pending'),
       diagnostics: categories.has('regression'),
     };
   }, [blocks]);
@@ -152,7 +153,18 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         }));
         setGeneratedSections(sections);
         setActiveTab('editor');
-        toast.success('Chapter 4 generated!');
+        toast.success('Chapter 4 generated! Auto-saving...');
+        // Auto-save after generation
+        const sectionMapping: Record<string, string> = {};
+        sections.forEach(s => { sectionMapping[s.id] = s.content; });
+        const fullText = sections.map(s => `## ${s.number} ${s.title}\n\n${s.content}`).join('\n\n');
+        const record = { analysis_id: analysisId, full_text: fullText, section_mapping: sectionMapping as any, version: (savedChapter?.version || 0) + 1 };
+        if (savedChapter?.id) {
+          await supabase.from('chapter_results').update(record).eq('id', savedChapter.id);
+        } else {
+          await supabase.from('chapter_results').insert([record]);
+        }
+        fetchData();
       }
     } catch (err) {
       console.error('Generation error:', err);
@@ -322,13 +334,14 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         </TabsContent>
 
         <TabsContent value="editor" className="space-y-4">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleSave}>
-              <Save className="w-4 h-4 mr-2" /> Save Draft
-            </Button>
+          <div className="flex gap-2 items-center">
             <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
               <RefreshCw className="w-4 h-4 mr-2" /> Regenerate All
             </Button>
+            <Button variant="ghost" size="sm" onClick={handleSave}>
+              <Save className="w-3 h-3 mr-1" /> Save
+            </Button>
+            {savedChapter && <span className="text-xs text-muted-foreground">Auto-saved v{savedChapter.version}</span>}
           </div>
 
           <ScrollArea className="h-[600px]">

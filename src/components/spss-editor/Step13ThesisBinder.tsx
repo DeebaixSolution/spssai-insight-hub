@@ -66,7 +66,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
     }
   };
 
-  const handleExport = async (format: 'word' | 'pdf') => {
+  const handleExport = async (format: 'word' | 'pdf', chapterFilter?: 'both' | 'chapter4' | 'chapter5') => {
     if (!analysisId || !user) return;
     if (format === 'pdf' && !isPro) {
       toast.error('PDF export requires PRO plan.');
@@ -80,6 +80,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           analysisId,
           format,
           isPro,
+          chapterFilter: chapterFilter || 'both',
           chapter4Text: String(status.chapter4.text || ''),
           chapter5Text: String(status.chapter5.text || ''),
           citations: status.citations.items,
@@ -105,19 +106,17 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
       }]);
 
       if (data?.content) {
-        // Create HTML-based .doc file download
-        const blob = new Blob([data.content], { 
-          type: 'application/msword'
-        });
+        // Use text/html MIME so Word can open it natively and browsers can preview
+        const blob = new Blob([data.content], { type: 'text/html;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `thesis-chapters-4-5.doc`;
+        a.download = `thesis-chapters-4-5-${chapterFilter || 'both'}.htm`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success('Document downloaded successfully!');
+        toast.success('Document downloaded! Open with Microsoft Word or any browser.');
       }
 
       fetchStatus();
@@ -190,12 +189,12 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           <div className="border rounded-lg p-4 space-y-3">
             <h4 className="font-medium">Export Options</h4>
             <div className="flex gap-3">
-              <Button onClick={() => handleExport('word')} disabled={!readyToExport || isExporting} className="flex-1">
+              <Button onClick={() => handleExport('word', 'both')} disabled={!readyToExport || isExporting} className="flex-1">
                 {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                Export Word (.doc)
+                Full Thesis (.htm)
               </Button>
               <Button
-                onClick={() => handleExport('pdf')}
+                onClick={() => handleExport('pdf', 'both')}
                 disabled={!readyToExport || isExporting || !isPro}
                 variant={isPro ? 'default' : 'outline'}
                 className="flex-1"
@@ -203,6 +202,24 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
                 {!isPro && <Crown className="w-4 h-4 mr-2" />}
                 <Download className="w-4 h-4 mr-2" />
                 Export PDF {!isPro && '(PRO)'}
+              </Button>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline" size="sm"
+                onClick={() => handleExport('word', 'chapter4')}
+                disabled={!status.chapter4.exists || isExporting}
+                className="flex-1"
+              >
+                <Download className="w-3 h-3 mr-1" /> Chapter 4 Only
+              </Button>
+              <Button
+                variant="outline" size="sm"
+                onClick={() => handleExport('word', 'chapter5')}
+                disabled={!status.chapter5.exists || isExporting}
+                className="flex-1"
+              >
+                <Download className="w-3 h-3 mr-1" /> Chapter 5 Only
               </Button>
             </div>
             {!isPro && (

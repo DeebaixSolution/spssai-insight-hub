@@ -11,7 +11,7 @@ serve(async (req) => {
   }
 
   try {
-    const { analysisId, format, isPro, chapter4Text, chapter5Text, citations, analysisBlocks } = await req.json();
+    const { analysisId, format, isPro, chapter4Text, chapter5Text, citations, analysisBlocks, chapterFilter } = await req.json();
 
     // Build HTML document with Word-compatible formatting
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -45,83 +45,82 @@ serve(async (req) => {
 </div>
 <div class="page-break"></div>`;
 
-    // Chapter 4
-    html += `<h1>CHAPTER 4</h1>
+    // Chapter 4 (skip if chapter5 only)
+    if (chapterFilter !== 'chapter5') {
+      html += `<h1>CHAPTER 4</h1>
 <h2>RESULTS AND DATA ANALYSIS</h2>`;
-    
-    if (chapter4Text) {
-      const ch4Lines = String(chapter4Text).split('\n');
-      for (const line of ch4Lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (trimmed.startsWith('## ')) {
-          html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
-        } else if (trimmed.startsWith('### ')) {
-          html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
-        } else {
-          html += `<p>${trimmed}</p>`;
-        }
-      }
-    } else {
-      html += `<p>Chapter 4 content not available.</p>`;
-    }
 
-    // Insert analysis block tables
-    if (analysisBlocks && Array.isArray(analysisBlocks)) {
-      let tableNum = 1;
-      for (const block of analysisBlocks) {
-        if (block.results?.tables) {
-          for (const table of block.results.tables) {
-            html += `<p class="no-indent" style="font-style: italic;">Table 4.${tableNum}: ${table.title || block.test_type}</p>`;
-            html += `<table>`;
-            if (table.headers) {
-              html += `<tr>${table.headers.map((h: string) => `<th>${h}</th>`).join('')}</tr>`;
-            }
-            if (table.rows) {
-              for (const row of table.rows) {
-                if (Array.isArray(row)) {
-                  html += `<tr>${row.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
-                } else {
-                  const vals = table.headers ? table.headers.map((h: string) => row[h] ?? '') : Object.values(row);
-                  html += `<tr>${vals.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
-                }
-              }
-            }
-            html += `</table>`;
-            tableNum++;
+      if (chapter4Text) {
+        const ch4Lines = String(chapter4Text).split('\n');
+        for (const line of ch4Lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('## ')) {
+            html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
+          } else if (trimmed.startsWith('### ')) {
+            html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
+          } else {
+            html += `<p>${trimmed}</p>`;
           }
         }
-        // Add narrative/interpretation
-        if (block.narrative?.apa) {
-          html += `<p>${block.narrative.apa}</p>`;
-        }
-        if (block.narrative?.interpretation) {
-          html += `<p>${block.narrative.interpretation}</p>`;
+      } else {
+        html += `<p>Chapter 4 content not available.</p>`;
+      }
+
+      // Insert analysis block tables embedded in chapter
+      if (analysisBlocks && Array.isArray(analysisBlocks)) {
+        let tableNum = 1;
+        for (const block of analysisBlocks) {
+          if (block.results?.tables) {
+            for (const table of block.results.tables) {
+              html += `<p class="no-indent" style="font-style: italic;">Table 4.${tableNum}: ${table.title || block.test_type}</p>`;
+              html += `<table>`;
+              if (table.headers) {
+                html += `<tr>${table.headers.map((h: string) => `<th>${h}</th>`).join('')}</tr>`;
+              }
+              if (table.rows) {
+                for (const row of table.rows) {
+                  if (Array.isArray(row)) {
+                    html += `<tr>${row.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
+                  } else {
+                    const vals = table.headers ? table.headers.map((h: string) => row[h] ?? '') : Object.values(row);
+                    html += `<tr>${vals.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
+                  }
+                }
+              }
+              html += `</table>`;
+              tableNum++;
+            }
+          }
+          if (block.narrative?.apa) html += `<p>${block.narrative.apa}</p>`;
+          if (block.narrative?.interpretation) html += `<p>${block.narrative.interpretation}</p>`;
         }
       }
+
+      html += `<div class="page-break"></div>`;
     }
 
-    html += `<div class="page-break"></div>`;
-
-    // Chapter 5
-    html += `<h1>CHAPTER 5</h1>
+    // Chapter 5 (skip if chapter4 only)
+    if (chapterFilter !== 'chapter4') {
+      html += `<h1>CHAPTER 5</h1>
 <h2>DISCUSSION AND CONCLUSION</h2>`;
-    
-    if (chapter5Text) {
-      const ch5Lines = String(chapter5Text).split('\n');
-      for (const line of ch5Lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        if (trimmed.startsWith('## ')) {
-          html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
-        } else if (trimmed.startsWith('### ')) {
-          html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
-        } else {
-          html += `<p>${trimmed}</p>`;
+
+      if (chapter5Text) {
+        const ch5Lines = String(chapter5Text).split('\n');
+        for (const line of ch5Lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('## ')) {
+            html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
+          } else if (trimmed.startsWith('### ')) {
+            html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
+          } else {
+            html += `<p>${trimmed}</p>`;
+          }
         }
+      } else {
+        html += `<p>Chapter 5 content not available.</p>`;
       }
-    } else {
-      html += `<p>Chapter 5 content not available.</p>`;
     }
 
     // References (PRO only)
