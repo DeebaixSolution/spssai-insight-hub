@@ -81,23 +81,30 @@ export function StatisticalAnalysisCenter({
           // Run descriptive stats
           await supabase.functions.invoke('run-analysis', {
             body: {
-              analysisId,
-              testType: 'descriptive-statistics',
-              testCategory: 'descriptive',
-              variables: scaleVars.map(v => v.name),
+              testType: 'descriptives',
+              dependentVariables: scaleVars.map(v => v.name),
+              independentVariables: [],
+              data: parsedData.rows.slice(0, 500),
+            },
+          });
+          // Run normality test
+          await supabase.functions.invoke('run-analysis', {
+            body: {
+              testType: 'normality-test',
+              dependentVariables: scaleVars.map(v => v.name),
+              independentVariables: [],
               data: parsedData.rows.slice(0, 500),
             },
           });
         }
 
         if (s.step === 8 && scaleVars.length >= 2) {
-          // Run correlation matrix
+          // Run Pearson correlation matrix
           await supabase.functions.invoke('run-analysis', {
             body: {
-              analysisId,
-              testType: 'correlation-matrix',
-              testCategory: 'correlation',
-              variables: scaleVars.map(v => v.name),
+              testType: 'pearson',
+              dependentVariables: scaleVars.map(v => v.name),
+              independentVariables: scaleVars.map(v => v.name),
               data: parsedData.rows.slice(0, 500),
             },
           });
@@ -107,13 +114,13 @@ export function StatisticalAnalysisCenter({
           // Run first hypothesis test
           const h = hypotheses[0];
           if (h.dependentVariables.length > 0 && h.independentVariables.length > 0) {
+            const testType = h.type === 'association' ? 'pearson' : 'independent-t-test';
             await supabase.functions.invoke('run-analysis', {
               body: {
-                analysisId,
-                testType: h.type === 'association' ? 'pearson' : 'independent-t-test',
-                testCategory: h.type === 'association' ? 'correlation' : 'compare-means',
-                dependentVariable: h.dependentVariables[0],
-                independentVariable: h.independentVariables[0],
+                testType,
+                dependentVariables: h.dependentVariables,
+                independentVariables: h.independentVariables,
+                groupingVariable: h.independentVariables[0],
                 data: parsedData.rows.slice(0, 500),
               },
             });
