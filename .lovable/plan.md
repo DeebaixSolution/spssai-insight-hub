@@ -1,208 +1,130 @@
 
+# Fix Plan: Step 11 (Chapter 4 Tables), Step 12 (Chapter 5 Save), Step 13 (Download) + Auto-Save
 
-# Comprehensive Fix Plan: Steps 2, 3, 4-10, 11, 12, 13 + Persistence + AI Assistant
+## Root Cause Analysis
 
-## Issues Identified
+### Issue 1 — Step 11: Only descriptive analysis shows; other tables/graphs/interpretations missing
+**Root cause:** `Step11AcademicResults.tsx` calls `generate-chapter4` passing only block metadata. The `generate-chapter4` edge function uses this to write narrative text, but the frontend only shows inline tables for "completed" blocks. The problem is that **blocks run in Steps 5–10 (correlations, regression, measurement) are saved to `analysis_blocks` with `status = 'completed'`** BUT the `sectionCategoryMap` only maps these sections correctly IF the `test_category` field exactly matches the map keys. The blocks from Steps 8/9 use `test_category = 'correlation'` and `'regression'` which ARE in the map, but the `status === 'completed'` filter is the key issue — the auto-pilot blocks or manually run blocks may not have `status = 'completed'` set on the DB record. Additionally, the `generate-chapter4` edge function needs to embed the actual table data into the AI prompt so the narrative text references real numbers.
 
-### Critical Bug: Database Constraint Blocks Saving (Steps 8-13)
-The `analyses_current_step_check` constraint limits `current_step` to values 1-7. This causes "failed to save progress" errors in Steps 8 (Correlation), 9 (Regression), and all subsequent steps. This single constraint is the root cause of multiple reported failures.
+### Issue 2 — Step 12: Chapter 5 not saved / generation errors
+**Root cause:** The `generate-chapter5` edge function uses `.single()` on a query that may return zero rows (no Chapter 4 saved yet), causing a PostgREST error that breaks the whole function. Also, when generation succeeds, `data.sections` is returned as a flat object but the frontend checks `data.sections` — if the AI returns nested keys, sections are missing.
 
-### Issue List Summary
-| # | Issue | Root Cause |
-|---|-------|-----------|
-| 1 | Step 2: AI Detect doesn't assign role/measure/values properly | `detect-variables` edge function doesn't return `role` or `valueLabels`; scale grouping only manual |
-| 2 | Step 3a: No "Generate Research Questions" button | Missing feature |
-| 3 | Step 3b: Only 3 hypotheses generated; no numbering control | AI generates fixed count; no quantity input |
-| 4 | Step 3c: Hypothesis doesn't auto-show DV/IV selectors | DV/IV selectors exist in HypothesisCard but not pre-populated by AI |
-| 5 | Steps 4-10: No "SPSS Brain Analysis" one-click button | Missing feature |
-| 6 | Step 8: "Failed to save progress" | `current_step` constraint blocks saving beyond step 7 |
-| 7 | Step 9: "Failed to save progress" | Same constraint issue |
-| 8 | Step 11: Chapter 4 generation missing tables/charts from prior steps | `generate-chapter4` only receives block metadata, not actual result tables |
-| 9 | Step 11: No per-section regenerate button | Missing feature |
-| 10 | Step 12: Chapter 5 sections not saved/generated properly | `section_mapping` not saved; missing per-section AI button |
-| 11 | Step 13: Download produces nothing visible | `generate-thesis-doc` returns plain text, not actual .docx binary |
-| 12 | Note 1: Analysis not persisted when closing and returning | `saveAnalysis` hits constraint; auto-save not triggered |
-| 13 | Note 2: No AI assistant guidance across steps | Missing feature |
+### Issue 3 — Step 13: No file downloaded
+**Root cause:** `generate-thesis-doc` returns `{ content: html, format: 'html' }` correctly. The `Step13ThesisBinder.tsx` calls it with `chapter4Text: String(status.chapter4.text || '')`. The problem: `status.chapter4.text` comes from `chapter_results.full_text` which is a long string. BUT `status.chapter5.text` comes from `discussion_chapter.chapter5_text`. The `readyToExport` guard is `status.chapter4.exists || status.chapter5.exists`. If the user hasn't generated either chapter first, the button is disabled. However, even if the user has generated chapters, the edge function may return an empty or very short HTML string if `chapter4Text` is empty — but the Blob is still created and download triggered. The real issue is that the **download IS triggered but the file opens blank in Word** because `application/msword` MIME type with HTML content requires the HTML to be properly structured. The current HTML is missing the `<meta charset="utf-8">` in a way Word recognizes AND the Blob content-type should be `application/vnd.ms-word` or the file extension should be `.html` so the browser can open it. Also, analysis block tables are sent in `analysisBlocks` but the edge function only inserts them AFTER the chapter text, not integrated section by section.
+
+### Issue 4 — Auto-save: "no need to save progress in each step"
+**Current state:** Auto-save on step transitions is already implemented in `NewAnalysis.tsx`. However, there is NO manual "Save Progress" button between steps that should be removed. The `handleProceed` function does auto-save. This is working but the user sees save buttons in Steps 11 and 12 that they need to click manually — these should auto-save on navigation.
 
 ---
 
-## Phase 1: Database Migration (Fixes Issues 6, 7, 12)
+## Changes Required
 
-**Update the `analyses_current_step_check` constraint** to allow steps 1-13:
-
-```sql
-ALTER TABLE analyses DROP CONSTRAINT analyses_current_step_check;
-ALTER TABLE analyses ADD CONSTRAINT analyses_current_step_check CHECK (current_step >= 1 AND current_step <= 13);
-```
-
-This single fix resolves:
-- Step 8 correlation "failed to save"
-- Step 9 regression "failed to save"
-- All step persistence beyond step 7
-
----
-
-## Phase 2: Step 2 -- Enhanced AI Detection (Issue 1)
-
-**File: `supabase/functions/detect-variables/index.ts`**
-- Update the prompt to also return `role` (dependent/independent/demographic/scale_item/id) and detect scale item patterns (e.g., Q1, Q2... or Likert items) and group them with a `scaleGroup` name.
-- Return: `{name, type, label, role, scaleGroup, valueLabels}`
-
-**File: `src/components/spss-editor/Step2Variables.tsx`**
-- Add a new button: "AI Detect and Group" that calls the enhanced detect-variables function, assigns roles, measures, value labels, AND auto-groups scale items.
-- Keep existing "Group Scale Items" button as the manual option.
-- Remove the PRO gate from the AI Detect button (make it available to all users).
-- After AI detection, apply detected `role`, `measure`, `valueLabels`, and `scaleGroup` to each variable.
-
----
-
-## Phase 3: Step 3 -- Research Question Generator + Hypothesis Improvements (Issues 2, 3, 4)
-
-**3a -- Research Question Generator**
-
-**File: `src/components/spss-editor/Step3Research.tsx`**
-- Add a "Generate Research Questions" button below the textarea.
-- When clicked, call `suggest-analysis` edge function with the variable list and get back 3 research question suggestions.
-- Display as selectable cards; clicking one fills the textarea.
-
-**File: `supabase/functions/suggest-analysis/index.ts`**
-- Add a `mode: 'research-questions'` option that returns 3 research question suggestions based on variables.
-
-**3b -- Hypothesis Count Control**
-
-**File: `src/components/spss-editor/Step3Research.tsx`**
-- Add a number input (1-10) before the "AI Suggest Hypotheses" button to control how many hypotheses to generate.
-- Pass the count to the edge function.
-- Each generated hypothesis gets a sequential number (H1, H2, H3...).
-
-**3c -- Auto DV/IV Selection on Generation**
-
-**File: `src/components/spss-editor/Step3Research.tsx`**
-- Update `applySuggestion` to auto-populate `dependentVariables` and `independentVariables` from the AI response.
-- Update `suggest-analysis` edge function to return `suggestedDV` and `suggestedIV` fields matching actual variable names.
-
-**File: `src/components/spss-editor/HypothesisCard.tsx`**
-- When hypothesis is created from AI, auto-expand the card and highlight the DV/IV dropdowns.
-
----
-
-## Phase 4: SPSS Brain Analysis Button (Issue 5)
-
-**File: `src/components/spss-editor/StatisticalAnalysisCenter.tsx`**
-- Add a prominent "SPSS Brain Analysis" button at the top of the Statistical Analysis Center (Layer 2).
-- When clicked, it runs a sequence:
-  1. Step 4: Auto-run descriptive stats and normality for all scale variables.
-  2. Step 5/6: Based on hypotheses and normality results, auto-select and run appropriate parametric or non-parametric tests.
-  3. Step 7: If multi-factor design detected, auto-run ANOVA/GLM.
-  4. Step 8: Auto-run correlation matrix for all scale variables.
-  5. Step 9: If prediction hypothesis exists, auto-run regression.
-  6. Step 10: If scale items exist, auto-run reliability analysis.
-- Show a progress indicator while running.
-- All results saved to `analysis_blocks`.
-- Manual step access remains unchanged -- user can still go to each step individually.
-
-**New file: `src/hooks/useSpssAutoPilot.ts`**
-- Contains the orchestration logic for the auto-pilot sequence.
-- Calls `run-analysis` edge function sequentially for each step.
-- Tracks progress and errors.
-
----
-
-## Phase 5: Step 11 -- Chapter 4 with Real Tables (Issues 8, 9)
-
-**File: `supabase/functions/generate-chapter4/index.ts`**
-- Enhance the prompt to include actual statistical values from `analysis_blocks.results`.
-- For each section, include the real tables (means, SD, F-values, p-values, etc.) so the AI references them correctly.
-- Return structured content with embedded table references.
+### Fix 1: Step 11 — Show ALL tables/graphs from all steps in Chapter 4
 
 **File: `src/components/spss-editor/Step11AcademicResults.tsx`**
-- Add a "Regenerate" button per section (not just global regenerate).
-- For each section, display the actual SPSS-style tables from `analysis_blocks` inline (descriptive tables, correlation matrices, regression coefficients, etc.).
-- Show the AI interpretation text below each table.
-- Tables are rendered using the existing `.spss-table-academic` CSS class.
-- Section layout: Table first, then interpretation paragraph.
 
----
+Problem: The `sectionCategoryMap` uses `test_category` to match blocks. The categories from the run-analysis function are: `descriptive`, `normality`, `compare-means`, `nonparametric`, `anova`, `correlation`, `regression`, `measurement-validation`. The current map is missing `normality` and `anova`.
 
-## Phase 6: Step 12 -- Chapter 5 Fix (Issue 10)
+Fix the section-to-category mapping:
+```
+sample: ['descriptive', 'normality']
+measurement: ['measurement-validation', 'factor-analysis']  
+descriptive: ['descriptive']
+reliability: ['reliability', 'measurement-validation']
+correlation: ['correlation']
+regression: ['regression']
+hypothesis: ['compare-means', 'nonparametric', 'anova', 'parametric']
+diagnostics: ['regression']
+```
 
-**File: `src/components/spss-editor/Step12Theoretical.tsx`**
-- Save `section_mapping` as a proper JSON object when saving (currently missing from the save record).
-- Add per-section "AI Generate" button that regenerates only that section.
-- Add "AI Autofill Theory" button in the theory tab that suggests a theoretical framework based on variables and research question.
+Also remove the `b.status === 'completed'` filter — replace with `b.status !== 'pending'` or remove entirely, since blocks saved by the analysis engine may have status `'running'` or `'completed'` depending on how they were persisted.
 
-**File: `src/components/spss-editor/Step12Theoretical.tsx` (handleSave)**
-- Add `section_mapping: sections as any` to the save record so sections are persisted individually.
+Add a "Show all blocks" section at the top of the editor tab that renders ALL analysis blocks with their full tables and interpretations, not just section-filtered ones. This ensures nothing is missed.
 
----
+**File: `supabase/functions/generate-chapter4/index.ts`**
 
-## Phase 7: Step 13 -- Working Download (Issue 11)
+Currently the prompt only receives a text summary. Enhance it to include the actual table data from each block's `results.tables` array so the AI can write sentences like "Table 4.1 shows a mean of 3.45 (SD = 0.82)".
 
-**File: `supabase/functions/generate-thesis-doc/index.ts`**
-- Currently returns plain text. Needs to generate actual downloadable content.
-- Format the text as structured HTML that can be converted to a .docx Blob on the client side.
-- Include all tables from `analysis_blocks` in the document body.
-- Include chapter headings, section numbers, and APA formatting.
+### Fix 2: Step 12 — Fix Chapter 5 generation error
+
+**File: `supabase/functions/generate-chapter5/index.ts`**
+
+The critical bug: `.single()` throws when no rows exist. Fix:
+```typescript
+// BEFORE (crashes if no chapter 4 exists):
+const { data: chapter4 } = await supabase.from('chapter_results')...single();
+
+// AFTER (safe):
+const { data: chapter4Data } = await supabase.from('chapter_results')...limit(1);
+const chapter4 = chapter4Data?.[0] || null;
+```
+
+Also the returned JSON from OpenAI may wrap sections under a `sections` key. The frontend does `data.sections` but the edge function returns `{ sections: result.sections || result, advisory: ... }`. If the AI returns `{ "sections": { "findings": "..." } }` then `result.sections` is the object. If the AI returns `{ "findings": "..." }` directly then `result` is used. This is correct. The issue is only the `.single()` crash.
+
+Add `sectionId` handling for single-section regeneration (the function doesn't currently use the `sectionId` parameter sent from the frontend).
+
+### Fix 3: Step 13 — Make download actually work
+
+**Root cause confirmed:** The HTML content is built correctly in the edge function, but:
+1. The MIME type `application/msword` causes Word to try to interpret the file as binary .doc, not HTML. Word cannot open it.
+2. The file extension is `.doc` but the content is HTML.
+
+**Fix: Change to `.html` extension with proper HTML MIME type** OR use `.doc` with `application/vnd.ms-word` and ensure the HTML has the full Word XML namespace. The current code already has the correct Word XML namespaces in the HTML tag, so the MIME type just needs to match.
 
 **File: `src/components/spss-editor/Step13ThesisBinder.tsx`**
-- Fix the download handler to properly create a downloadable .docx file.
-- Use the edge function response to create a Blob with proper MIME type.
-- For Word export: generate HTML-based .doc file (simpler than full OOXML).
-- Include tables, interpretation text, and references in the download.
 
----
+Change the Blob creation:
+```typescript
+// BEFORE:
+const blob = new Blob([data.content], { type: 'application/msword' });
+a.download = `thesis-chapters-4-5.doc`;
 
-## Phase 8: Auto-Save and Persistence (Issue 12)
+// AFTER: save as .htm which Word opens natively AND browsers can open to verify
+const blob = new Blob([data.content], { type: 'text/html;charset=utf-8' });
+a.download = `thesis-chapters-4-5.htm`;
+```
 
-**File: `src/pages/dashboard/NewAnalysis.tsx`**
-- Add auto-save on step transitions (when user navigates between steps, auto-save current state).
-- Add periodic auto-save every 60 seconds if changes detected.
-- Save analysis state including all variables, hypotheses, and current step.
+This `.htm` file will:
+- Open in any browser to verify content
+- Open in Word when double-clicked (Word recognizes HTML files)
+- Preserve all table formatting and APA styles
 
-**File: `src/hooks/useAnalysisWizard.ts`**
-- Fix `saveAnalysis` to cap `current_step` at 13 (now valid after constraint fix).
-- Update status mapping: step >= 11 should be 'completed' or 'reviewing'.
+Also add a **"Download Chapter 4 Only"** button and a **"Download Chapter 5 Only"** button that use simpler targeted payloads, so users don't have to generate both chapters to get a download.
 
----
+**File: `supabase/functions/generate-thesis-doc/index.ts`**
 
-## Phase 9: AI Assistant Guidance (Issue 13)
+Add `chapterFilter` parameter: `'both' | 'chapter4' | 'chapter5'`. If `chapterFilter = 'chapter4'`, skip chapter 5 section entirely.
 
-**New file: `src/components/spss-editor/AIAssistantPanel.tsx`**
-- A floating or sidebar panel that provides contextual guidance at each step.
-- Shows as a pulsing light/indicator on important steps.
-- Displays tips like:
-  - Step 1: "Upload your SPSS, Excel, or CSV file"
-  - Step 2: "Assign roles (DV/IV) to your variables for better test recommendations"
-  - Step 4: "Check normality before running parametric tests"
-  - Step 8: "Strong correlations (r > .70) may indicate multicollinearity"
-- Collapsible panel with a lightbulb icon.
-- Each step has 2-3 contextual tips stored as static content (no AI call needed).
+Ensure all analysis block tables are embedded **section by section** within the chapter text, not appended at the end. Reorganize so tables appear right after their section heading.
 
-**File: `src/pages/dashboard/NewAnalysis.tsx`**
-- Integrate the AIAssistantPanel, showing relevant tips based on `state.currentStep`.
+### Fix 4: Auto-save — Remove manual save buttons from Steps 11/12
+
+**File: `src/components/spss-editor/Step11AcademicResults.tsx`**
+- Remove the "Save Draft" button from the editor tab. Instead, auto-save the chapter after generation completes (call `handleSave()` at the end of `handleGenerate()`).
+- Keep the manual save available only as a small "Saved" badge that updates.
+
+**File: `src/components/spss-editor/Step12Theoretical.tsx`**
+- Same: auto-save after generation in `handleGenerate()`.
+- Remove the prominent "Save Draft" button.
 
 ---
 
 ## Implementation Order
 
-| Order | Task | Files Changed |
-|-------|------|--------------|
-| 1 | DB Migration: update step constraint to 1-13 | Migration SQL |
-| 2 | Step 2: Enhanced AI detection with roles + scale grouping | `detect-variables/index.ts`, `Step2Variables.tsx` |
-| 3 | Step 3: Research question generator + hypothesis improvements | `suggest-analysis/index.ts`, `Step3Research.tsx`, `HypothesisCard.tsx` |
-| 4 | Step 12: Fix section_mapping save + per-section AI buttons | `Step12Theoretical.tsx` |
-| 5 | Step 11: Add real tables inline + per-section regenerate | `generate-chapter4/index.ts`, `Step11AcademicResults.tsx` |
-| 6 | Step 13: Fix download to produce real .doc file | `generate-thesis-doc/index.ts`, `Step13ThesisBinder.tsx` |
-| 7 | Auto-save + persistence | `NewAnalysis.tsx`, `useAnalysisWizard.ts` |
-| 8 | SPSS Brain Analysis auto-pilot button | `StatisticalAnalysisCenter.tsx`, new `useSpssAutoPilot.ts` |
-| 9 | AI Assistant guidance panel | New `AIAssistantPanel.tsx`, `NewAnalysis.tsx` |
+| # | File | Change |
+|---|------|--------|
+| 1 | `supabase/functions/generate-chapter5/index.ts` | Fix `.single()` crash; add `sectionId` filter; remove `.single()` |
+| 2 | `supabase/functions/generate-chapter4/index.ts` | Include actual table data from blocks in AI prompt |
+| 3 | `supabase/functions/generate-thesis-doc/index.ts` | Add `chapterFilter` param; integrate tables by section |
+| 4 | `src/components/spss-editor/Step11AcademicResults.tsx` | Fix `sectionCategoryMap`; remove status filter; auto-save after generation; show all blocks |
+| 5 | `src/components/spss-editor/Step12Theoretical.tsx` | Auto-save after generation |
+| 6 | `src/components/spss-editor/Step13ThesisBinder.tsx` | Fix MIME type to `text/html`; change extension to `.htm`; add Chapter 4/5 individual download buttons |
 
 ---
 
 ## Technical Notes
 
-- The constraint fix (Phase 1) is the highest priority -- it unblocks saving for Steps 8-13.
-- The `generate-thesis-doc` edge function currently returns plain text strings, not binary file data. The fix will use HTML-to-doc approach (HTML with Word-compatible XML namespace).
-- All edge function changes will be deployed automatically after code changes.
-- No new database tables needed -- all fixes use existing schema.
-
+- The `.htm` format is the correct approach for Word-compatible HTML exports without a backend OOXML library. Word has natively opened HTML files since Word 2000.
+- The `generate-chapter5` `.single()` bug will throw a `PGRST116` error ("JSON object requested, multiple (or no) rows returned") which propagates as a 500 error with a non-descriptive message. This is the root cause of "Chapter 5 generation error."
+- No database migrations needed — all fixes are application-layer only.
+- The auto-save on step transition in `NewAnalysis.tsx` is already correct; we only need to add auto-save triggers inside the chapter generation functions themselves.
