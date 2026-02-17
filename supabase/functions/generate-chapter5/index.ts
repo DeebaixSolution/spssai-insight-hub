@@ -19,8 +19,9 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch Chapter 4 data
-    const { data: chapter4 } = await supabase.from('chapter_results').select('full_text').eq('analysis_id', analysisId).order('created_at', { ascending: false }).limit(1).single();
+    // Fetch Chapter 4 data safely (avoid .single() crash when no rows)
+    const { data: ch4Rows } = await supabase.from('chapter_results').select('full_text').eq('analysis_id', analysisId).order('created_at', { ascending: false }).limit(1);
+    const chapter4 = ch4Rows?.[0] || null;
     const { data: hyps } = await supabase.from('hypotheses').select('*').eq('analysis_id', analysisId);
 
     const theorySection = mode === 'pro' && theoryInput ? `
@@ -32,7 +33,7 @@ Citations: ${JSON.stringify(citations || [])}` : '';
 
     const prompt = `Generate Chapter 5: Discussion and Conclusion for an academic thesis.
 
-Chapter 4 Results: ${chapter4?.full_text?.slice(0, 3000) || 'Not available'}
+Chapter 4 Results: ${chapter4?.full_text?.slice(0, 3000) || 'Not available yet'}
 Hypotheses: ${JSON.stringify(hyps || [])}
 ${theorySection}
 Mode: ${mode}

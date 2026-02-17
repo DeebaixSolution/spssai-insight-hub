@@ -114,7 +114,22 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         setSections(data.sections);
         if (data.advisory) setAdvisoryItems(data.advisory);
         setActiveTab('editor');
-        toast.success('Chapter 5 generated!');
+        toast.success('Chapter 5 generated! Auto-saving...');
+        // Auto-save after generation
+        const fullText = CHAPTER_5_SECTIONS.map(s => `## ${s.number} ${s.title}\n\n${data.sections[s.id] || ''}`).join('\n\n');
+        const record = {
+          analysis_id: analysisId, chapter5_text: fullText,
+          section_mapping: data.sections as any, mode,
+          theory_input: theoryInput as any,
+          citations_used: citations.map(c => c.id) as any,
+          version: (savedChapter?.version || 0) + 1,
+        };
+        if (savedChapter?.id) {
+          await supabase.from('discussion_chapter').update(record).eq('id', savedChapter.id);
+        } else {
+          await supabase.from('discussion_chapter').insert([record]);
+        }
+        fetchSavedData();
       }
     } catch (err) {
       console.error('Generation error:', err);
@@ -292,13 +307,14 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
         )}
 
         <TabsContent value="editor" className="space-y-4">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleSave}>
-              <Save className="w-4 h-4 mr-2" /> Save Draft
-            </Button>
+          <div className="flex gap-2 items-center">
             <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
               <RefreshCw className="w-4 h-4 mr-2" /> Regenerate All
             </Button>
+            <Button variant="ghost" size="sm" onClick={handleSave}>
+              <Save className="w-3 h-3 mr-1" /> Save
+            </Button>
+            {savedChapter && <span className="text-xs text-muted-foreground">Auto-saved v{savedChapter.version}</span>}
           </div>
 
           <ScrollArea className="h-[600px]">
