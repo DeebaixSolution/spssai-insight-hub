@@ -61,6 +61,13 @@ const sectionCategoryMap: Record<string, string[]> = {
   summary: [],
 };
 
+// Test types that belong to correlation section even when stored under other categories (e.g. Spearman as nonparametric)
+const CORRELATION_TEST_TYPES = ['spearman', 'pearson', 'kendall', 'partial-correlation', 'point-biserial'];
+// Test types that belong to reliability section
+const RELIABILITY_TEST_TYPES = ['cronbach-alpha', 'factor-analysis', 'efa', 'cfa', 'composite-reliability'];
+// Test types that belong to regression section
+const REGRESSION_TEST_TYPES_PATTERN = 'regression';
+
 export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
   const [blocks, setBlocks] = useState<AnalysisBlockData[]>([]);
   const [hypotheses, setHypotheses] = useState<any[]>([]);
@@ -113,19 +120,32 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
 
   const getBlocksForSection = (sectionId: string, allBlocks: AnalysisBlockData[]): AnalysisBlockData[] => {
     const categories = sectionCategoryMap[sectionId] || [];
-    // Include blocks regardless of status — auto-pilot may save with any status
-    return allBlocks.filter(b => categories.includes(b.test_category) && b.status !== 'pending');
+    return allBlocks.filter(b => {
+      if (b.status === 'pending') return false;
+      if (categories.includes(b.test_category)) return true;
+      // Special cross-category mappings based on test_type
+      if (sectionId === 'correlation' && CORRELATION_TEST_TYPES.includes(b.test_type)) return true;
+      if (sectionId === 'reliability' && RELIABILITY_TEST_TYPES.includes(b.test_type)) return true;
+      if ((sectionId === 'regression' || sectionId === 'diagnostics') && b.test_type?.includes(REGRESSION_TEST_TYPES_PATTERN)) return true;
+      return false;
+    });
   };
 
   const stepStatus = useMemo(() => {
-    const categories = new Set(blocks.filter(b => b.status !== 'pending').map(b => b.test_category));
+    const completedBlocks = blocks.filter(b => b.status !== 'pending');
+    const categories = new Set(completedBlocks.map(b => b.test_category));
+    const testTypes = new Set(completedBlocks.map(b => b.test_type));
     return {
       descriptive: categories.has('descriptive') || categories.has('normality'),
-      reliability: categories.has('reliability') || categories.has('measurement-validation'),
-      correlation: categories.has('correlation'),
-      regression: categories.has('regression'),
-      hypothesis: blocks.some(b => ['compare-means', 'nonparametric', 'anova', 'anova-glm', 'parametric'].includes(b.test_category) && b.status !== 'pending'),
-      diagnostics: categories.has('regression'),
+      reliability: categories.has('reliability') || categories.has('measurement-validation') ||
+        RELIABILITY_TEST_TYPES.some(t => testTypes.has(t)),
+      correlation: categories.has('correlation') ||
+        CORRELATION_TEST_TYPES.some(t => testTypes.has(t)),
+      regression: categories.has('regression') ||
+        Array.from(testTypes).some(t => t?.includes(REGRESSION_TEST_TYPES_PATTERN)),
+      hypothesis: completedBlocks.some(b => ['compare-means', 'nonparametric', 'anova', 'anova-glm', 'parametric'].includes(b.test_category)),
+      diagnostics: categories.has('regression') ||
+        Array.from(testTypes).some(t => t?.includes(REGRESSION_TEST_TYPES_PATTERN)),
     };
   }, [blocks]);
 
@@ -234,10 +254,47 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     return found ? row[found] : '';
   };
 
-  // Render SPSS-style table from block results
+  // Render SPSS-style table from block results — resilient fallback for non-table results
   const renderBlockTable = (block: AnalysisBlockData) => {
-    if (!block.results?.tables) return null;
-    return block.results.tables.map((table: any, ti: number) => (
+    const tables = block.results?.tables;
+    const summary = block.results?.summary;
+    const statistics = block.results?.statistics;
+
+    if (!tables?.length) {
+      // Fallback: show summary, statistics as a simple table, or APA narrative
+      return (
+        <div key={block.id} className="my-2 space-y-1">
+          {summary && <p className="text-xs font-serif text-foreground">{summary}</p>}
+          {statistics && typeof statistics === 'object' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse border-t-2 border-b-2 border-foreground">
+                <thead>
+                  <tr className="border-b border-foreground">
+                    <th className="px-2 py-1 text-left font-bold">Statistic</th>
+                    <th className="px-2 py-1 text-left font-bold">Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(statistics).map(([k, v]: [string, any], i) => (
+                    <tr key={i} className="border-b border-border">
+                      <td className="px-2 py-1 font-medium">{k}</td>
+                      <td className="px-2 py-1">{typeof v === 'number' ? Number(v).toFixed(3) : String(v ?? '')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {block.narrative?.apa && <p className="text-xs text-muted-foreground italic font-serif">{block.narrative.apa}</p>}
+          {block.narrative?.interpretation && <p className="text-xs text-foreground font-serif">{block.narrative.interpretation}</p>}
+          {!summary && !statistics && !block.narrative?.apa && (
+            <p className="text-xs text-muted-foreground italic">No table data available for this block.</p>
+          )}
+        </div>
+      );
+    }
+
+    return tables.map((table: any, ti: number) => (
       <div key={`${block.id}-${ti}`} className="my-3">
         <p className="text-xs font-semibold text-muted-foreground italic mb-1">
           Table: {table.title || block.test_type}
