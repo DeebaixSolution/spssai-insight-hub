@@ -70,6 +70,16 @@ export default function NewAnalysis() {
     }
   }, [location.state, loadAnalysis]);
 
+  // Wire navigate-to-step custom event from child components (e.g., Step 13 "Go to Step 12" button)
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      const step = e.detail?.step;
+      if (typeof step === 'number') goToStep(step);
+    };
+    window.addEventListener('navigate-to-step', handler as EventListener);
+    return () => window.removeEventListener('navigate-to-step', handler as EventListener);
+  }, [goToStep]);
+
   // Auto-save every 60 seconds
   useEffect(() => {
     if (!state.projectId || !state.datasetId) return;

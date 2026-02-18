@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileDown, Crown, CheckCircle, AlertCircle, Download, Eye, RefreshCw } from 'lucide-react';
+import { FileDown, Crown, CheckCircle, AlertCircle, Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -52,9 +52,14 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
         supabase.from('thesis_exports').select('*').eq('analysis_id', analysisId).order('created_at', { ascending: false }),
       ]);
 
+      const ch5Record = ch5.data?.[0];
+      // Chapter 5 is "exists" if the record exists AND has meaningful text content
+      const ch5Text = ch5Record?.chapter5_text || '';
+      const ch5Exists = !!ch5Record && ch5Text.trim().length > 50;
+
       setStatus({
         chapter4: { exists: !!ch4.data?.[0], version: ch4.data?.[0]?.version || 0, text: ch4.data?.[0]?.full_text || '' },
-        chapter5: { exists: !!ch5.data?.[0], version: ch5.data?.[0]?.version || 0, text: ch5.data?.[0]?.chapter5_text || '' },
+        chapter5: { exists: ch5Exists, version: ch5Record?.version || 0, text: ch5Text },
         citations: { count: cit.data?.length || 0, items: cit.data || [] },
         blocks: { count: blocks.data?.length || 0, items: blocks.data || [] },
       });
@@ -66,19 +71,15 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
     }
   };
 
-  const handleExport = async (format: 'word' | 'pdf', chapterFilter?: 'both' | 'chapter4' | 'chapter5') => {
+  const handleExport = async (format: 'word' | 'word-doc', chapterFilter?: 'both' | 'chapter4' | 'chapter5') => {
     if (!analysisId || !user) return;
-    if (format === 'pdf' && !isPro) {
-      toast.error('PDF export requires PRO plan.');
-      return;
-    }
 
     setIsExporting(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-thesis-doc', {
         body: {
           analysisId,
-          format,
+          format: 'word',
           isPro,
           chapterFilter: chapterFilter || 'both',
           chapter4Text: String(status.chapter4.text || ''),
@@ -106,17 +107,22 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
       }]);
 
       if (data?.content) {
-        // Use text/html MIME so Word can open it natively and browsers can preview
         const blob = new Blob([data.content], { type: 'text/html;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `thesis-chapters-4-5-${chapterFilter || 'both'}.htm`;
+        // .doc extension opens natively in Word; .htm for browser preview
+        const ext = format === 'word-doc' ? 'doc' : 'htm';
+        a.download = `thesis-chapters-${chapterFilter || 'both'}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        toast.success('Document downloaded! Open with Microsoft Word or any browser.');
+        toast.success(
+          format === 'word-doc'
+            ? 'Word document downloaded! Open with Microsoft Word.'
+            : 'HTML document downloaded. Open in browser or Word.'
+        );
       }
 
       fetchStatus();
@@ -129,6 +135,15 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
   };
 
   const readyToExport = status.chapter4.exists || status.chapter5.exists;
+  const completedBlocks = status.blocks.items.filter((b: any) => b.status !== 'pending');
+
+  // Export progress steps
+  const progressSteps = [
+    { label: `Analysis Blocks (${completedBlocks.length}/${status.blocks.count})`, done: completedBlocks.length > 0 },
+    { label: `Chapter 4 v${status.chapter4.version || '–'}`, done: status.chapter4.exists },
+    { label: `Chapter 5 v${status.chapter5.version || '–'}`, done: status.chapter5.exists },
+    { label: 'Ready to Export', done: readyToExport },
+  ];
 
   return (
     <div className="space-y-6">
@@ -141,6 +156,32 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           <p className="text-sm text-muted-foreground mt-1">
             Compile chapters into a unified academic document
           </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={fetchStatus} disabled={isLoading}>
+          <RefreshCw className={cn('w-4 h-4 mr-1', isLoading && 'animate-spin')} />
+          Refresh Status
+        </Button>
+      </div>
+
+      {/* Progress indicator */}
+      <div className="border rounded-lg p-4">
+        <h4 className="text-sm font-medium mb-3">Export Progress</h4>
+        <div className="flex items-center gap-2 flex-wrap">
+          {progressSteps.map((step, i) => (
+            <div key={i} className="flex items-center gap-1">
+              {i > 0 && <span className="text-muted-foreground text-xs">→</span>}
+              <div className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium',
+                step.done ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+              )}>
+                {step.done
+                  ? <CheckCircle className="w-3 h-3" />
+                  : <AlertCircle className="w-3 h-3" />
+                }
+                {step.label}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -155,46 +196,58 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className={cn(
               'border rounded-lg p-4',
-              status.chapter4.exists ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20' : 'border-border'
+              status.chapter4.exists ? 'border-primary/30 bg-primary/5' : 'border-border'
             )}>
               <div className="flex items-center gap-2 mb-2">
-                {status.chapter4.exists ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-muted-foreground" />}
+                {status.chapter4.exists
+                  ? <CheckCircle className="w-5 h-5 text-primary" />
+                  : <AlertCircle className="w-5 h-5 text-muted-foreground" />}
                 <h4 className="font-medium">Chapter 4: Results</h4>
               </div>
               <p className="text-sm text-muted-foreground">
                 {status.chapter4.exists ? `v${status.chapter4.version} – Ready` : 'Not generated yet. Complete Step 11.'}
               </p>
               {status.blocks.count > 0 && (
-                <Badge variant="secondary" className="mt-2 text-xs">{status.blocks.count} analysis blocks</Badge>
+                <Badge variant="secondary" className="mt-2 text-xs">
+                  {completedBlocks.length}/{status.blocks.count} blocks ready
+                </Badge>
               )}
             </div>
 
             <div className={cn(
               'border rounded-lg p-4',
-              status.chapter5.exists ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20' : 'border-orange-200 bg-orange-50/50 dark:bg-orange-950/20'
+              status.chapter5.exists
+                ? 'border-primary/30 bg-primary/5'
+                : 'border-destructive/30 bg-destructive/5'
             )}>
               <div className="flex items-center gap-2 mb-2">
-                {status.chapter5.exists ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-orange-500" />}
+                {status.chapter5.exists
+                  ? <CheckCircle className="w-5 h-5 text-primary" />
+                  : <AlertCircle className="w-5 h-5 text-destructive" />}
                 <h4 className="font-medium">Chapter 5: Discussion</h4>
               </div>
               <p className="text-sm text-muted-foreground">
-                {status.chapter5.exists ? `v${status.chapter5.version} – Ready` : 'Not generated yet.'}
+                {status.chapter5.exists
+                  ? `v${status.chapter5.version} – Ready`
+                  : 'Not generated yet.'}
               </p>
               {!status.chapter5.exists && (
                 <div className="mt-3 space-y-2">
-                  <p className="text-xs text-orange-700 dark:text-orange-400 font-medium">
+                  <p className="text-xs text-destructive font-medium">
                     ⚠️ Complete Step 12 (Theoretical Framework) to generate Chapter 5.
                   </p>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="w-full border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400"
+                    className="w-full"
                     onClick={() => {
-                      // Dispatch custom event to navigate to step 12
                       window.dispatchEvent(new CustomEvent('navigate-to-step', { detail: { step: 12 } }));
                     }}
                   >
                     Go to Step 12 → Generate Chapter 5
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full text-xs" onClick={fetchStatus}>
+                    <RefreshCw className="w-3 h-3 mr-1" /> I just generated it – Refresh
                   </Button>
                 </div>
               )}
@@ -206,43 +259,50 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
 
           <div className="border rounded-lg p-4 space-y-3">
             <h4 className="font-medium">Export Options</h4>
+            <p className="text-xs text-muted-foreground">
+              The export includes all analysis results, tables, and interpretations from Steps 4–10. 
+              Chapter 4 is AI-generated academic text based on those results. Tables are embedded with their APA narrative.
+            </p>
             <div className="flex gap-3">
-              <Button onClick={() => handleExport('word', 'both')} disabled={!readyToExport || isExporting} className="flex-1">
-                {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                Full Thesis (.htm)
-              </Button>
               <Button
-                onClick={() => handleExport('pdf', 'both')}
-                disabled={!readyToExport || isExporting || !isPro}
-                variant={isPro ? 'default' : 'outline'}
+                onClick={() => handleExport('word-doc', 'both')}
+                disabled={!readyToExport || isExporting}
                 className="flex-1"
               >
-                {!isPro && <Crown className="w-4 h-4 mr-2" />}
+                {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export Word (.doc)
+              </Button>
+              <Button
+                onClick={() => handleExport('word', 'both')}
+                disabled={!readyToExport || isExporting}
+                variant="outline"
+                className="flex-1"
+              >
                 <Download className="w-4 h-4 mr-2" />
-                Export PDF {!isPro && '(PRO)'}
+                Export HTML (.htm)
               </Button>
             </div>
             <div className="flex gap-3">
               <Button
                 variant="outline" size="sm"
-                onClick={() => handleExport('word', 'chapter4')}
+                onClick={() => handleExport('word-doc', 'chapter4')}
                 disabled={!status.chapter4.exists || isExporting}
                 className="flex-1"
               >
-                <Download className="w-3 h-3 mr-1" /> Chapter 4 Only
+                <Download className="w-3 h-3 mr-1" /> Chapter 4 Only (.doc)
               </Button>
               <Button
                 variant="outline" size="sm"
-                onClick={() => handleExport('word', 'chapter5')}
+                onClick={() => handleExport('word-doc', 'chapter5')}
                 disabled={!status.chapter5.exists || isExporting}
                 className="flex-1"
               >
-                <Download className="w-3 h-3 mr-1" /> Chapter 5 Only
+                <Download className="w-3 h-3 mr-1" /> Chapter 5 Only (.doc)
               </Button>
             </div>
             {!isPro && (
               <p className="text-xs text-muted-foreground">
-                Free plan: Partial export with watermark. Upgrade for full thesis export.
+                Free plan: Export with watermark. Upgrade to PRO for full export without watermark.
               </p>
             )}
           </div>
@@ -250,7 +310,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           {!readyToExport && (
             <Alert>
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>Generate at least Chapter 4 or Chapter 5 before exporting.</AlertDescription>
+              <AlertDescription>Generate at least Chapter 4 (Step 11) or Chapter 5 (Step 12) before exporting.</AlertDescription>
             </Alert>
           )}
         </TabsContent>
