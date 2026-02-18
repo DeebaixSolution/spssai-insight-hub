@@ -81,10 +81,18 @@ serve(async (req) => {
               if (table.rows) {
                 for (const row of table.rows) {
                   if (Array.isArray(row)) {
-                    html += `<tr>${row.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
+                    html += `<tr>${row.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
                   } else {
-                    const vals = table.headers ? table.headers.map((h: string) => row[h] ?? '') : Object.values(row);
-                    html += `<tr>${vals.map((c: any) => `<td>${c}</td>`).join('')}</tr>`;
+                    // Case-insensitive key lookup: header "Variable" matches row key "variable"
+                    const rowKeys = Object.keys(row);
+                    const vals = table.headers
+                      ? table.headers.map((h: string) => {
+                          if (row[h] !== undefined) return row[h];
+                          const k = rowKeys.find(rk => rk.toLowerCase() === h.toLowerCase());
+                          return k !== undefined ? row[k] : '';
+                        })
+                      : Object.values(row);
+                    html += `<tr>${vals.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
                   }
                 }
               }

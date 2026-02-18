@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { BookOpen, CheckCircle, AlertCircle, FileText, RefreshCw, Save, Wand2 } from 'lucide-react';
+import { BookOpen, CheckCircle, AlertCircle, FileText, RefreshCw, Save, Wand2, LayoutGrid } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -55,7 +55,7 @@ const sectionCategoryMap: Record<string, string[]> = {
   reliability: ['reliability', 'measurement-validation'],
   correlation: ['correlation'],
   regression: ['regression'],
-  hypothesis: ['compare-means', 'nonparametric', 'anova', 'parametric'],
+  hypothesis: ['compare-means', 'nonparametric', 'anova', 'anova-glm', 'parametric'],
   diagnostics: ['regression'],
   integrated: [],
   summary: [],
@@ -124,7 +124,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
       reliability: categories.has('reliability') || categories.has('measurement-validation'),
       correlation: categories.has('correlation'),
       regression: categories.has('regression'),
-      hypothesis: blocks.some(b => ['compare-means', 'nonparametric', 'anova', 'parametric'].includes(b.test_category) && b.status !== 'pending'),
+      hypothesis: blocks.some(b => ['compare-means', 'nonparametric', 'anova', 'anova-glm', 'parametric'].includes(b.test_category) && b.status !== 'pending'),
       diagnostics: categories.has('regression'),
     };
   }, [blocks]);
@@ -226,6 +226,14 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     setGeneratedSections(prev => prev.map(s => s.id === sectionId ? { ...s, content } : s));
   };
 
+  // Case-insensitive cell resolver
+  const resolveCell = (row: any, header: string): any => {
+    if (row[header] !== undefined) return row[header];
+    const keys = Object.keys(row);
+    const found = keys.find(k => k.toLowerCase() === header.toLowerCase());
+    return found ? row[found] : '';
+  };
+
   // Render SPSS-style table from block results
   const renderBlockTable = (block: AnalysisBlockData) => {
     if (!block.results?.tables) return null;
@@ -246,18 +254,28 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
               </thead>
             )}
             <tbody>
-              {table.rows?.map((row: any, ri: number) => (
-                <tr key={ri} className="border-b border-border">
-                  {(Array.isArray(row) ? row : (table.headers ? table.headers.map((h: string) => row[h] ?? '') : Object.values(row))).map((cell: any, ci: number) => (
-                    <td key={ci} className="px-2 py-1">{typeof cell === 'number' ? Number(cell).toFixed(3) : String(cell)}</td>
-                  ))}
-                </tr>
-              ))}
+              {table.rows?.map((row: any, ri: number) => {
+                const cells = Array.isArray(row)
+                  ? row
+                  : table.headers
+                    ? table.headers.map((h: string) => resolveCell(row, h))
+                    : Object.values(row);
+                return (
+                  <tr key={ri} className="border-b border-border">
+                    {cells.map((cell: any, ci: number) => (
+                      <td key={ci} className="px-2 py-1">{typeof cell === 'number' ? Number(cell).toFixed(3) : String(cell ?? '')}</td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         {block.narrative?.apa && (
           <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>
+        )}
+        {block.narrative?.interpretation && (
+          <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>
         )}
       </div>
     ));
@@ -281,6 +299,9 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="allblocks">
+            <LayoutGrid className="w-3 h-3 mr-1" /> All Blocks ({blocks.length})
+          </TabsTrigger>
           <TabsTrigger value="editor" disabled={generatedSections.length === 0}>Chapter Editor</TabsTrigger>
         </TabsList>
 
@@ -296,10 +317,10 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
             ].map(item => (
               <div key={item.key} className={cn(
                 'rounded-lg p-3 border flex items-center gap-2',
-                stepStatus[item.key] ? 'bg-green-50 dark:bg-green-950/20 border-green-200' : 'bg-muted/50 border-border'
+                stepStatus[item.key] ? 'bg-primary/10 border-primary/30' : 'bg-muted/50 border-border'
               )}>
-                {stepStatus[item.key] ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertCircle className="w-4 h-4 text-muted-foreground" />}
-                <span className={cn('text-sm', stepStatus[item.key] ? 'text-green-700 dark:text-green-300' : 'text-muted-foreground')}>{item.label}</span>
+                {stepStatus[item.key] ? <CheckCircle className="w-4 h-4 text-primary" /> : <AlertCircle className="w-4 h-4 text-muted-foreground" />}
+                <span className={cn('text-sm', stepStatus[item.key] ? 'text-primary' : 'text-muted-foreground')}>{item.label}</span>
               </div>
             ))}
           </div>
@@ -330,6 +351,48 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>No analysis blocks found. Complete Steps 4-10 first.</AlertDescription>
             </Alert>
+          )}
+        </TabsContent>
+
+        {/* ALL BLOCKS TAB — shows every analysis block with full tables + interpretation */}
+        <TabsContent value="allblocks" className="space-y-4">
+          {blocks.length === 0 ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>No analysis blocks yet. Complete Steps 4–10 first.</AlertDescription>
+            </Alert>
+          ) : (
+            <ScrollArea className="h-[600px]">
+              <div className="space-y-4 pr-4">
+                {blocks.map(block => (
+                  <div key={block.id} className="border rounded-lg overflow-hidden">
+                    <div className="bg-muted px-4 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-semibold">{block.test_type}</h4>
+                        <Badge variant="outline" className="text-xs">{block.test_category}</Badge>
+                        <Badge variant={block.status === 'completed' ? 'default' : 'secondary'} className="text-xs">{block.status}</Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{block.section}</span>
+                    </div>
+                    <div className="p-4">
+                      {block.results?.tables ? (
+                        renderBlockTable(block)
+                      ) : block.results?.summary ? (
+                        <p className="text-sm font-serif text-foreground">{block.results.summary}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">No table data available for this block.</p>
+                      )}
+                      {block.narrative?.apa && !block.results?.tables && (
+                        <p className="text-xs text-muted-foreground mt-2 italic font-serif">{block.narrative.apa}</p>
+                      )}
+                      {block.narrative?.interpretation && !block.results?.tables && (
+                        <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
           )}
         </TabsContent>
 

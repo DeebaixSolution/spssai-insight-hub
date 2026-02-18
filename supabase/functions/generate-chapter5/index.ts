@@ -60,7 +60,11 @@ Also return "advisory" array with objects {type: "strength"|"weakness"|"suggesti
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const result = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
 
-    return new Response(JSON.stringify({ sections: result.sections || result, advisory: result.advisory || [] }), {
+    // Strip advisory and nested sections so they don't pollute the sections object
+    const { advisory, sections: nestedSections, ...flatSections } = result;
+    const finalSections = nestedSections || flatSections;
+
+    return new Response(JSON.stringify({ sections: finalSections, advisory: advisory || [] }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
