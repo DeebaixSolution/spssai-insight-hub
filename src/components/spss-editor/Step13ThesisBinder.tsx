@@ -171,15 +171,33 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
 
             <div className={cn(
               'border rounded-lg p-4',
-              status.chapter5.exists ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20' : 'border-border'
+              status.chapter5.exists ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20' : 'border-orange-200 bg-orange-50/50 dark:bg-orange-950/20'
             )}>
               <div className="flex items-center gap-2 mb-2">
-                {status.chapter5.exists ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-muted-foreground" />}
+                {status.chapter5.exists ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-orange-500" />}
                 <h4 className="font-medium">Chapter 5: Discussion</h4>
               </div>
               <p className="text-sm text-muted-foreground">
-                {status.chapter5.exists ? `v${status.chapter5.version} – Ready` : 'Not generated yet. Complete Step 12.'}
+                {status.chapter5.exists ? `v${status.chapter5.version} – Ready` : 'Not generated yet.'}
               </p>
+              {!status.chapter5.exists && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-orange-700 dark:text-orange-400 font-medium">
+                    ⚠️ Complete Step 12 (Theoretical Framework) to generate Chapter 5.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400"
+                    onClick={() => {
+                      // Dispatch custom event to navigate to step 12
+                      window.dispatchEvent(new CustomEvent('navigate-to-step', { detail: { step: 12 } }));
+                    }}
+                  >
+                    Go to Step 12 → Generate Chapter 5
+                  </Button>
+                </div>
+              )}
               {status.citations.count > 0 && (
                 <Badge variant="secondary" className="mt-2 text-xs">{status.citations.count} references</Badge>
               )}
