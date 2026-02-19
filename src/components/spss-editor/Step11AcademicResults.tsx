@@ -365,20 +365,33 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         <TabsContent value="overview" className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
-              { label: 'Descriptive', key: 'descriptive' as const },
-              { label: 'Reliability', key: 'reliability' as const },
-              { label: 'Correlation', key: 'correlation' as const },
-              { label: 'Regression', key: 'regression' as const },
-              { label: 'Hypothesis Testing', key: 'hypothesis' as const },
-              { label: 'Diagnostics', key: 'diagnostics' as const },
+              { label: 'Descriptive', key: 'descriptive' as const, step: 4 },
+              { label: 'Reliability', key: 'reliability' as const, step: 10 },
+              { label: 'Correlation', key: 'correlation' as const, step: 8 },
+              { label: 'Regression', key: 'regression' as const, step: 9 },
+              { label: 'Hypothesis Testing', key: 'hypothesis' as const, step: 5 },
+              { label: 'Diagnostics', key: 'diagnostics' as const, step: 9 },
             ].map(item => (
-              <div key={item.key} className={cn(
-                'rounded-lg p-3 border flex items-center gap-2',
-                stepStatus[item.key] ? 'bg-primary/10 border-primary/30' : 'bg-muted/50 border-border'
-              )}>
+              <button
+                key={item.key}
+                onClick={() => {
+                  if (!stepStatus[item.key]) {
+                    window.dispatchEvent(new CustomEvent('navigate-to-step', { detail: { step: item.step } }));
+                  }
+                }}
+                className={cn(
+                  'rounded-lg p-3 border flex items-center gap-2 text-left w-full transition-colors',
+                  stepStatus[item.key] ? 'bg-primary/10 border-primary/30' : 'bg-muted/50 border-border hover:bg-muted/80 cursor-pointer'
+                )}
+              >
                 {stepStatus[item.key] ? <CheckCircle className="w-4 h-4 text-primary" /> : <AlertCircle className="w-4 h-4 text-muted-foreground" />}
-                <span className={cn('text-sm', stepStatus[item.key] ? 'text-primary' : 'text-muted-foreground')}>{item.label}</span>
-              </div>
+                <div className="flex flex-col">
+                  <span className={cn('text-sm', stepStatus[item.key] ? 'text-primary' : 'text-muted-foreground')}>{item.label}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {stepStatus[item.key] ? 'Data available' : `No data — Go to Step ${item.step}`}
+                  </span>
+                </div>
+              </button>
             ))}
           </div>
 
@@ -432,19 +445,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
                       <span className="text-xs text-muted-foreground">{block.section}</span>
                     </div>
                     <div className="p-4">
-                      {block.results?.tables ? (
-                        renderBlockTable(block)
-                      ) : block.results?.summary ? (
-                        <p className="text-sm font-serif text-foreground">{block.results.summary}</p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">No table data available for this block.</p>
-                      )}
-                      {block.narrative?.apa && !block.results?.tables && (
-                        <p className="text-xs text-muted-foreground mt-2 italic font-serif">{block.narrative.apa}</p>
-                      )}
-                      {block.narrative?.interpretation && !block.results?.tables && (
-                        <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>
-                      )}
+                      {renderBlockTable(block)}
                     </div>
                   </div>
                 ))}

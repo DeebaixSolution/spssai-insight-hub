@@ -726,6 +726,7 @@ export type Database = {
           created_at: string
           id: string
           mode: string
+          section_mapping: Json | null
           theory_input: Json | null
           updated_at: string
           version: number
@@ -737,6 +738,7 @@ export type Database = {
           created_at?: string
           id?: string
           mode?: string
+          section_mapping?: Json | null
           theory_input?: Json | null
           updated_at?: string
           version?: number
@@ -748,6 +750,7 @@ export type Database = {
           created_at?: string
           id?: string
           mode?: string
+          section_mapping?: Json | null
           theory_input?: Json | null
           updated_at?: string
           version?: number
@@ -1186,6 +1189,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      step_functions: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          display_order: number | null
+          function_id: string
+          function_name: string
+          id: string
+          is_enabled: boolean | null
+          is_pro_only: boolean | null
+          step_number: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          function_id: string
+          function_name: string
+          id?: string
+          is_enabled?: boolean | null
+          is_pro_only?: boolean | null
+          step_number: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          display_order?: number | null
+          function_id?: string
+          function_name?: string
+          id?: string
+          is_enabled?: boolean | null
+          is_pro_only?: boolean | null
+          step_number?: number
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       thesis_exports: {
         Row: {
