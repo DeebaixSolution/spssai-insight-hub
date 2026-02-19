@@ -44,6 +44,38 @@ const CHAPTER_5_SECTIONS = [
   { id: 'conclusion', number: '5.7', title: 'Conclusion' },
 ];
 
+// Parse individual sections from the full chapter5_text when section_mapping is missing
+function parseChapter5Sections(fullText: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  CHAPTER_5_SECTIONS.forEach(s => { result[s.id] = ''; });
+  
+  const lines = fullText.split('\n');
+  let currentSectionId = '';
+  let currentContent: string[] = [];
+  
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s*5\.(\d+)/);
+    if (headingMatch) {
+      // Save previous section
+      if (currentSectionId) {
+        result[currentSectionId] = currentContent.join('\n').trim();
+      }
+      const sectionNum = parseInt(headingMatch[1]);
+      const section = CHAPTER_5_SECTIONS[sectionNum - 1];
+      currentSectionId = section?.id || '';
+      currentContent = [];
+    } else {
+      currentContent.push(line);
+    }
+  }
+  // Save last section
+  if (currentSectionId) {
+    result[currentSectionId] = currentContent.join('\n').trim();
+  }
+  
+  return result;
+}
+
 export function Step12Theoretical({ analysisId }: Step12Props) {
   const { isPro } = usePlanLimits();
   const [mode, setMode] = useState<'free' | 'pro'>(isPro ? 'pro' : 'free');
@@ -76,17 +108,15 @@ export function Step12Theoretical({ analysisId }: Step12Props) {
       if (discRes.data?.[0]) {
         setSavedChapter(discRes.data[0]);
         const saved = discRes.data[0];
-        if (saved.chapter5_text) {
-          const parsed: Record<string, string> = {};
-          CHAPTER_5_SECTIONS.forEach(s => { parsed[s.id] = ''; });
-          const mapping = (saved as any).section_mapping as Record<string, unknown> | undefined;
-          if (mapping) {
-            const safeSections: Record<string, string> = {};
-            Object.entries(mapping).forEach(([k, v]) => { safeSections[k] = typeof v === 'string' ? v : JSON.stringify(v ?? ''); });
-            setSections(safeSections);
-          } else {
-            setSections(parsed);
-          }
+        const mapping = (saved as any).section_mapping as Record<string, unknown> | undefined;
+        if (mapping && Object.keys(mapping).length > 0) {
+          const safeSections: Record<string, string> = {};
+          Object.entries(mapping).forEach(([k, v]) => { safeSections[k] = typeof v === 'string' ? v : JSON.stringify(v ?? ''); });
+          setSections(safeSections);
+        } else if (saved.chapter5_text) {
+          // Fallback: parse sections from chapter5_text using heading patterns
+          const parsed = parseChapter5Sections(String(saved.chapter5_text));
+          setSections(parsed);
         }
         if (saved.theory_input) setTheoryInput(saved.theory_input as unknown as TheoryInput);
         setMode(saved.mode === 'pro' ? 'pro' : 'free');

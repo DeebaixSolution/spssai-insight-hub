@@ -5,6 +5,73 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Map section keywords to analysis block categories/test_types for inline injection
+const sectionKeywordMap: Record<string, string[]> = {
+  descriptive: ['descriptive', 'normality', 'frequencies', 'sample'],
+  correlation: ['correlation', 'spearman', 'pearson', 'kendall'],
+  regression: ['regression'],
+  hypothesis: ['hypothesis', 'compare', 'anova', 'manova', 'parametric', 'nonparametric', 't-test', 'mann-whitney', 'wilcoxon', 'kruskal'],
+  reliability: ['reliability', 'cronbach', 'measurement', 'factor'],
+  diagnostics: ['diagnostic', 'residual', 'collinearity', 'vif'],
+};
+
+function matchBlockToSection(heading: string, block: any): boolean {
+  const headingLower = heading.toLowerCase();
+  for (const [, keywords] of Object.entries(sectionKeywordMap)) {
+    const headingMatches = keywords.some(kw => headingLower.includes(kw));
+    if (!headingMatches) continue;
+    const blockMatches = keywords.some(kw =>
+      (block.test_type || '').toLowerCase().includes(kw) ||
+      (block.test_category || '').toLowerCase().includes(kw)
+    );
+    if (blockMatches) return true;
+  }
+  return false;
+}
+
+function renderBlockTablesHtml(block: any, tableNum: { value: number }): string {
+  let html = '';
+  if (block.results?.tables) {
+    for (const table of block.results.tables) {
+      html += `<p class="no-indent" style="font-style: italic;">Table 4.${tableNum.value}: ${table.title || block.test_type}</p>`;
+      html += `<table>`;
+      if (table.headers) {
+        html += `<tr>${table.headers.map((h: string) => `<th>${h}</th>`).join('')}</tr>`;
+      }
+      if (table.rows) {
+        for (const row of table.rows) {
+          if (Array.isArray(row)) {
+            html += `<tr>${row.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
+          } else {
+            const rowKeys = Object.keys(row);
+            const vals = table.headers
+              ? table.headers.map((h: string) => {
+                  if (row[h] !== undefined) return row[h];
+                  const k = rowKeys.find((rk: string) => rk.toLowerCase() === h.toLowerCase());
+                  return k !== undefined ? row[k] : '';
+                })
+              : Object.values(row);
+            html += `<tr>${vals.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
+          }
+        }
+      }
+      html += `</table>`;
+      tableNum.value++;
+    }
+  } else if (block.results?.statistics && typeof block.results.statistics === 'object') {
+    html += `<p class="no-indent" style="font-style: italic;">Table 4.${tableNum.value}: ${block.test_type}</p>`;
+    html += `<table><tr><th>Statistic</th><th>Value</th></tr>`;
+    for (const [k, v] of Object.entries(block.results.statistics)) {
+      html += `<tr><td>${k}</td><td>${typeof v === 'number' ? Number(v).toFixed(3) : String(v ?? '')}</td></tr>`;
+    }
+    html += `</table>`;
+    tableNum.value++;
+  }
+  if (block.narrative?.apa) html += `<p>${block.narrative.apa}</p>`;
+  if (block.narrative?.interpretation) html += `<p>${block.narrative.interpretation}</p>`;
+  return html;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -13,7 +80,6 @@ serve(async (req) => {
   try {
     const { analysisId, format, isPro, chapter4Text, chapter5Text, citations, analysisBlocks, chapterFilter } = await req.json();
 
-    // Build HTML document with Word-compatible formatting
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8">
@@ -28,7 +94,6 @@ serve(async (req) => {
   p.center { text-align: center; text-indent: 0; }
   p.hanging { text-indent: -0.5in; padding-left: 0.5in; }
   table { border-collapse: collapse; width: 100%; margin: 12pt 0; font-size: 10pt; }
-  table caption { text-align: left; font-style: italic; margin-bottom: 6pt; }
   th, td { border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4pt 8pt; text-align: left; }
   th { font-weight: bold; border-bottom: 2px solid #000; }
   tr:first-child th { border-top: 2px solid #000; }
@@ -45,18 +110,32 @@ serve(async (req) => {
 </div>
 <div class="page-break"></div>`;
 
-    // Chapter 4 (skip if chapter5 only)
+    const blocks = analysisBlocks && Array.isArray(analysisBlocks) ? analysisBlocks : [];
+    const usedBlockIds = new Set<string>();
+    const tableNum = { value: 1 };
+
+    // Chapter 4
     if (chapterFilter !== 'chapter5') {
       html += `<h1>CHAPTER 4</h1>
 <h2>RESULTS AND DATA ANALYSIS</h2>`;
 
       if (chapter4Text) {
         const ch4Lines = String(chapter4Text).split('\n');
+        let pendingHeading = '';
         for (const line of ch4Lines) {
           const trimmed = line.trim();
           if (!trimmed) continue;
           if (trimmed.startsWith('## ')) {
-            html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
+            pendingHeading = trimmed.replace(/^##\s*/, '');
+            html += `<h2>${pendingHeading}</h2>`;
+            // Inject matching block tables after this heading
+            for (const block of blocks) {
+              if (usedBlockIds.has(block.id)) continue;
+              if (matchBlockToSection(pendingHeading, block)) {
+                html += renderBlockTablesHtml(block, tableNum);
+                usedBlockIds.add(block.id);
+              }
+            }
           } else if (trimmed.startsWith('### ')) {
             html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
           } else {
@@ -67,48 +146,17 @@ serve(async (req) => {
         html += `<p>Chapter 4 content not available.</p>`;
       }
 
-      // Insert analysis block tables embedded in chapter
-      if (analysisBlocks && Array.isArray(analysisBlocks)) {
-        let tableNum = 1;
-        for (const block of analysisBlocks) {
-          if (block.results?.tables) {
-            for (const table of block.results.tables) {
-              html += `<p class="no-indent" style="font-style: italic;">Table 4.${tableNum}: ${table.title || block.test_type}</p>`;
-              html += `<table>`;
-              if (table.headers) {
-                html += `<tr>${table.headers.map((h: string) => `<th>${h}</th>`).join('')}</tr>`;
-              }
-              if (table.rows) {
-                for (const row of table.rows) {
-                  if (Array.isArray(row)) {
-                    html += `<tr>${row.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
-                  } else {
-                    // Case-insensitive key lookup: header "Variable" matches row key "variable"
-                    const rowKeys = Object.keys(row);
-                    const vals = table.headers
-                      ? table.headers.map((h: string) => {
-                          if (row[h] !== undefined) return row[h];
-                          const k = rowKeys.find(rk => rk.toLowerCase() === h.toLowerCase());
-                          return k !== undefined ? row[k] : '';
-                        })
-                      : Object.values(row);
-                    html += `<tr>${vals.map((c: any) => `<td>${c ?? ''}</td>`).join('')}</tr>`;
-                  }
-                }
-              }
-              html += `</table>`;
-              tableNum++;
-            }
-          }
-          if (block.narrative?.apa) html += `<p>${block.narrative.apa}</p>`;
-          if (block.narrative?.interpretation) html += `<p>${block.narrative.interpretation}</p>`;
-        }
+      // Append any remaining unused blocks at the end
+      for (const block of blocks) {
+        if (usedBlockIds.has(block.id)) continue;
+        html += renderBlockTablesHtml(block, tableNum);
+        usedBlockIds.add(block.id);
       }
 
       html += `<div class="page-break"></div>`;
     }
 
-    // Chapter 5 (skip if chapter4 only)
+    // Chapter 5
     if (chapterFilter !== 'chapter4') {
       html += `<h1>CHAPTER 5</h1>
 <h2>DISCUSSION AND CONCLUSION</h2>`;

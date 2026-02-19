@@ -70,6 +70,15 @@ export default function NewAnalysis() {
     }
   }, [location.state, loadAnalysis]);
 
+  // Derive completedSteps from loaded currentStep so progress persists across sessions
+  useEffect(() => {
+    if (state.analysisId && state.currentStep > 1) {
+      const completed = new Set<number>();
+      for (let i = 1; i < state.currentStep; i++) completed.add(i);
+      setCompletedSteps(completed);
+    }
+  }, [state.analysisId]);
+
   // Wire navigate-to-step custom event from child components (e.g., Step 13 "Go to Step 12" button)
   useEffect(() => {
     const handler = (e: CustomEvent) => {
