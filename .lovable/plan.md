@@ -1,236 +1,172 @@
 
-# Comprehensive Fix Plan: Steps 11, 12, 13 — All Issues
+# Fix Plan: Steps 11-13 Data Flow, Chapter 5 Persistence, Export, Admin Step Control
 
-## Exact Root Causes Found
+## Root Causes (Database-Verified)
 
-### Issue 1a — Overview shows only Descriptive and Hypothesis as "completed" (green)
-The `stepStatus` object correctly has `'anova-glm'` in the hypothesis check (already fixed). But for **Reliability**, **Correlation**, **Regression**, and **Diagnostics**, the `categories` set must contain `'reliability'`, `'correlation'`, or `'regression'`. Looking at the screenshot: we see `spearman (completed)` — this has `test_category = 'correlation'` (Spearman is a correlation test). This means `stepStatus.correlation` should be `true`. The bug: **the categories are computed from `blocks.filter(b => b.status !== 'pending')`** but then compared with `categories.has('correlation')` — this should work for Spearman if `test_category = 'correlation'`.
+### Issue 1: Reliability/Regression/Diagnostics not appearing in Step 11 Overview
+**Not a bug.** The actual `analysis_blocks` in the database contain ONLY these categories: `descriptive`, `compare-means`, `nonparametric`, `anova-glm`. There are zero `regression`, `reliability`, or `correlation` category blocks. The Spearman test is saved as `nonparametric`, which the current code already handles via `CORRELATION_TEST_TYPES`. The overview cards for Reliability/Regression/Diagnostics are correctly grey because the user never ran those analyses in Steps 9/10. However, we should make this clearer to the user by showing "No analysis run" vs "Data available" labels, and allow clicking the card to navigate to the relevant step.
 
-**Real bug:** Looking more carefully — `spearman` and `manova` blocks exist, but the overview cards for Reliability, Correlation, Regression, Diagnostics show as grey. This means either: (a) `test_category` for spearman is NOT `'correlation'` — it could be `'nonparametric'` since Spearman is a non-parametric rank correlation, or (b) the `stepStatus` `useMemo` has a stale `blocks` reference.
+### Issue 2: Charts/graphics from Steps 4-10 not appearing in Step 11
+The `analysis_blocks` table stores `results` as JSONB. Some blocks have `results.tables` (structured tables), some have `results.summary` or `results.statistics`. The current `renderBlockTable` handles all three cases. However, **charts** (`results.charts`) are never rendered in Step 11. The run-analysis function may return chart data (e.g., histograms, box plots) inside `results.charts`, but Step 11 ignores this field entirely.
 
-The Spearman correlation being mapped to `nonparametric` rather than `correlation` category is a known inconsistency in the run-analysis function. So `stepStatus.correlation` returns false because `categories.has('correlation')` is false — the Spearman block has `test_category = 'nonparametric'`.
+**Fix:** Add chart rendering in `renderBlockTable` using Recharts (already installed).
 
-**Fix:** Expand `stepStatus` checks to handle cross-category test types:
-```typescript
-correlation: categories.has('correlation') || blocks.some(b => ['spearman', 'pearson', 'kendall', 'partial-correlation'].includes(b.test_type)),
-reliability: categories.has('reliability') || categories.has('measurement-validation') || blocks.some(b => ['cronbach-alpha', 'factor-analysis', 'efa'].includes(b.test_type)),
-regression: categories.has('regression') || blocks.some(b => b.test_type?.includes('regression')),
-diagnostics: categories.has('regression') || blocks.some(b => b.test_type?.includes('regression')),
-```
+### Issue 3: Chapter 5 not appearing in Step 13
+**Database evidence:** The `discussion_chapter` table has a record for `analysis_id = f2d089f1...` (Chapter 5 generated on Feb 15), but the user's CURRENT analysis is `analysis_id = 4948d97e...` (most recent). These are DIFFERENT analyses. Chapter 5 was generated for an older analysis, not the current one.
 
-Also fix `sectionCategoryMap` for correlation to include `'nonparametric'` for Spearman detection:
-```typescript
-correlation: ['correlation', 'nonparametric'], // Spearman saves as nonparametric
-```
-But wait — this would cause ALL nonparametric tests to show under Correlation. The better fix is to match by `test_type` in `getBlocksForSection`:
+Additionally, `discussion_chapter` has NO `section_mapping` column. Step 12's save code writes `section_mapping: data.sections` which Supabase silently ignores (unknown column). Only `chapter5_text` is actually saved. When Step 12 tries to restore sections from `section_mapping`, it gets `undefined`, so the sections state is empty.
 
-```typescript
-const getBlocksForSection = (sectionId: string, allBlocks: AnalysisBlockData[]) => {
-  if (sectionId === 'correlation') {
-    return allBlocks.filter(b => b.test_category === 'correlation' || 
-      ['spearman', 'pearson', 'kendall', 'partial-correlation'].includes(b.test_type));
-  }
-  // ... rest of sections
-};
-```
+**Fix:** 
+1. Add `section_mapping` column to `discussion_chapter` via migration
+2. Parse sections from `chapter5_text` as fallback when `section_mapping` is null
 
-### Issue 1b — Chapter 4 generated but "all analysis tables not inside Chapter 4"
-The Chapter Editor (tab 3) shows AI-generated text per section, and BELOW each section it shows "📊 Analysis Tables" from `getBlocksForSection`. Currently this works for sections that are correctly matched. The problem is the `renderBlockTable` function has a check `if (!block.results?.tables) return null` — if some blocks store results differently (e.g., `block.results.data` or `block.results.statistics` instead of `block.results.tables`), the table renders nothing.
+### Issue 4: Export .doc not matching Step 11 structure
+The `generate-thesis-doc` edge function appends all tables AFTER the chapter text instead of integrating them section by section. The section headings in the chapter text (e.g., `## 4.3 Descriptive Statistics`) should have their matching tables injected right after them.
 
-**Fix in `Step11AcademicResults.tsx`:** Make `renderBlockTable` more resilient — also render `block.results.statistics`, `block.results.data`, and fall back to a JSON display when `tables` is not present but `results` exists.
+**Fix:** Parse chapter text line by line, detect section headings, inject matching block tables after each heading using keyword matching.
 
-### Issue 1c — Token limit causing truncated Chapter 4 generation
-`max_tokens: 4000` for 10 sections with 1-3 paragraphs each is too low. Each section needs ~300-600 tokens, so 10 sections = 3000-6000 tokens output needed. The model truncates and returns incomplete JSON, which then fails `JSON.parse`.
+### Issue 5: Finish and Export / Save-Return not preserving all steps
+The `handleFinish` in `NewAnalysis.tsx` saves `currentStep: 13` and navigates to `/dashboard/reports`. But when loading back, `loadAnalysis` restores the `currentStep` from the DB and loads variables/hypotheses. The `completedSteps` Set is NOT persisted — it's local React state that resets on reload. So when returning, no steps show as completed.
 
-**Fix in `generate-chapter4/index.ts`:** 
-- Increase `max_tokens` to `8000`  
-- Use `gpt-4o` instead of `gpt-4o-mini` for longer, higher-quality output
-- Switch to using Lovable AI gateway (`google/gemini-2.5-flash`) which has a much larger context window
-- Add a fallback: if JSON parse fails, try to extract partial sections
+**Fix:** Derive `completedSteps` from the loaded `currentStep` value (all steps up to `currentStep` are completed).
 
-### Issue 2 — Chapter 5 generated and saved but Step 13 shows "Not generated yet"
-Looking at the Step 13 `fetchStatus` code:
-```typescript
-supabase.from('discussion_chapter').select('*').eq('analysis_id', analysisId)...
-chapter5: { exists: !!ch5.data?.[0], version: ch5.data?.[0]?.version || 0, text: ch5.data?.[0]?.chapter5_text || '' }
-```
+### Issue 6: Admin panel step-level control
+The current `AnalysisManager` only manages `analysis_tests` (individual statistical tests). The user wants per-step function control: enable/disable, reorder, and link to plan tier for Steps 2-13 features (e.g., AI variable detection in Step 2, regression in Step 9).
 
-The `exists` check is `!!ch5.data?.[0]`. The user confirmed Chapter 5 was generated and saved. But Step 13 shows "Not generated yet." This means either:
-- `ch5.data` is null/empty when fetched in Step 13 — possible if the `discussion_chapter` record has a different `analysis_id` than what Step 13 uses
-- OR the `section_mapping` was saved but `chapter5_text` (the `full_text` field) was left empty
-
-Looking at Step 12's save code: `chapter5_text: fullText` where `fullText` is generated from `CHAPTER_5_SECTIONS.map(s => ...)`. If `data.sections` contains the section keys but they are empty strings (because the AI didn't return content for some sections), then `fullText` could be just section headers. But `exists` is based on whether the row exists at all, not whether `chapter5_text` has content.
-
-**Most likely bug:** Step 12 auto-saves immediately after generation and calls `fetchSavedData()`. But `fetchSavedData` does `limit(1)` with `order('created_at', ascending: false)`. If the INSERT just happened, it should be the first result. This should work.
-
-**Alternative bug:** The `chapter5_text` field in `discussion_chapter` is saved correctly. But in Step 13, `ch5.data?.[0]?.chapter5_text` might be returning the raw `section_mapping` JSON object (not the text field). Let me check: Step 12 saves `chapter5_text: fullText` and `section_mapping: data.sections`. In Step 13 we read `chapter5_text` for the text preview. This is correct.
-
-**The real issue:** Step 13 `fetchStatus` is called `useEffect(() => { if (analysisId) fetchStatus(); }, [analysisId])`. If `analysisId` is already set when the component mounts (user navigated from step 12 after generating), the fetch runs. But the `discussion_chapter` INSERT in Step 12 saves the record AFTER the state update. There might be a **race condition** where Step 13 fetches BEFORE the DB insert completes.
-
-**Fix:** Add a manual "Refresh Status" button in Step 13. Also call `fetchStatus()` when the component becomes visible (on tab focus or when `activeTab` changes to 'status').
-
-Additionally — the `section_mapping` column doesn't exist in the `discussion_chapter` schema! Looking at the DB schema: `discussion_chapter` has: `mode`, `chapter5_text`, `version`, `created_at`, `updated_at`, `id`, `citations_used`, `theory_input`, `analysis_id`. **There is NO `section_mapping` column.** Step 12's save code saves `section_mapping: data.sections as any` — this will silently fail or be ignored by Supabase. The `chapter5_text` IS saved correctly though.
-
-**Fix for restore:** In `fetchSavedData`, since there's no `section_mapping` column, the sections need to be parsed from `chapter5_text` itself. The `chapter5_text` is formatted as `## 5.1 Title\n\nContent\n\n## 5.2 Title...` — parse this to restore individual sections.
-
-### Issue 3a — Export only shows `.html`, no Word `.docx`
-The current export creates a `.htm` file (HTML that Word can open). The user wants a proper Word button. We cannot generate real `.docx` binary without a library. The best solution:
-- Keep `.htm` as "Word Compatible" export  
-- Rename the button clearly: **"Export Word (.htm)"** with explanation
-- Add a second button: **"Export for Word"** that uses the same `.htm` with `.doc` extension (Word opens it natively on all platforms)
-
-### Issue 3b — Tables in export have narrative/interpretation but need inline placement
-Currently in `generate-thesis-doc`, tables are appended AFTER chapter 4 text block, not integrated section by section. Fix: build a section-to-block map and inject tables right after each `## heading`.
-
-### Issue 4 — "Go to Step 12" button doesn't work
-In Step 13:
-```typescript
-window.dispatchEvent(new CustomEvent('navigate-to-step', { detail: { step: 12 } }));
-```
-But in `NewAnalysis.tsx`, there is NO listener for `'navigate-to-step'` custom event. The `goToStep` function exists in the wizard hook but is never wired to this event.
-
-**Fix:** Add a `useEffect` in `NewAnalysis.tsx` to listen for `'navigate-to-step'` custom events and call `goToStep(detail.step)`.
-
-### Issue 5 — AI token/generation quality
-Both `generate-chapter4` and `generate-chapter5` use `gpt-4o-mini` with `max_tokens: 4000`. For 10 sections in Chapter 4 with statistics, this is insufficient. Switch to `google/gemini-2.5-flash` via the Lovable AI gateway which supports larger outputs and is already configured (`LOVABLE_API_KEY` secret exists).
+**Fix:** Create a new `step_functions` table and a "Step Functions" tab in `AnalysisManager`.
 
 ---
 
-## Implementation Plan
+## Changes Required
 
-### Files to Modify
+### 1. Database Migration: Add `section_mapping` to `discussion_chapter`
 
-| # | File | Changes |
-|---|------|---------|
-| 1 | `src/pages/dashboard/NewAnalysis.tsx` | Wire `navigate-to-step` custom event to `goToStep` |
-| 2 | `src/components/spss-editor/Step11AcademicResults.tsx` | Fix `stepStatus` checks for Spearman/test_type; fix `getBlocksForSection` for correlation; fix `renderBlockTable` for non-table results; improve All Blocks tab |
-| 3 | `src/components/spss-editor/Step13ThesisBinder.tsx` | Add "Refresh Status" button; fix Chapter 5 section restoration from `chapter5_text`; rename export buttons clearly; add progress indicator |
-| 4 | `supabase/functions/generate-chapter4/index.ts` | Switch to Lovable AI gateway with `google/gemini-2.5-flash`; increase token limit; add partial JSON recovery |
-| 5 | `supabase/functions/generate-chapter5/index.ts` | Switch to Lovable AI gateway; increase token limit |
-| 6 | `supabase/functions/generate-thesis-doc/index.ts` | Integrate tables section-by-section into chapter text; add `.doc` export option |
+```sql
+ALTER TABLE discussion_chapter ADD COLUMN section_mapping jsonb DEFAULT '{}'::jsonb;
+```
 
----
+### 2. Database Migration: Create `step_functions` table for admin control
 
-## Detailed Changes
+```sql
+CREATE TABLE step_functions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  step_number integer NOT NULL,
+  function_id text NOT NULL,
+  function_name text NOT NULL,
+  description text,
+  is_enabled boolean DEFAULT true,
+  is_pro_only boolean DEFAULT false,
+  display_order integer DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(step_number, function_id)
+);
 
-### Change 1: `NewAnalysis.tsx` — Wire navigate-to-step event
+ALTER TABLE step_functions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admins can manage step functions" ON step_functions FOR ALL USING (has_role(auth.uid(), 'admin'));
+CREATE POLICY "Anyone can view step functions" ON step_functions FOR SELECT USING (true);
+
+-- Seed initial step functions
+INSERT INTO step_functions (step_number, function_id, function_name, description, is_pro_only, display_order) VALUES
+(2, 'ai-variable-detection', 'AI Variable Detection', 'Auto-detect variable types and measures', true, 1),
+(2, 'manual-variable-config', 'Manual Variable Config', 'Manually set variable types', false, 2),
+(3, 'ai-research-suggestions', 'AI Research Suggestions', 'AI-powered hypothesis generation', true, 1),
+(3, 'manual-hypothesis', 'Manual Hypothesis Entry', 'Enter hypotheses manually', false, 2),
+(4, 'normality-test', 'Normality Testing', 'Shapiro-Wilk / Kolmogorov-Smirnov', false, 1),
+(4, 'descriptive-stats', 'Descriptive Statistics', 'Mean, SD, frequencies', false, 2),
+(5, 'parametric-tests', 'Parametric Tests', 'T-tests, paired comparisons', false, 1),
+(6, 'nonparametric-tests', 'Non-Parametric Tests', 'Mann-Whitney, Wilcoxon, Kruskal-Wallis', false, 2),
+(7, 'anova-glm', 'ANOVA / GLM', 'One-way, factorial, MANOVA, repeated measures', false, 1),
+(8, 'correlation', 'Correlation Analysis', 'Pearson, Spearman, partial correlations', false, 1),
+(9, 'regression', 'Regression Models', 'Linear, logistic regression with diagnostics', true, 1),
+(10, 'measurement', 'Measurement Validation', 'Cronbach alpha, EFA, CFA', true, 1),
+(11, 'chapter4-generation', 'Chapter 4 AI Generation', 'AI-generated academic results chapter', false, 1),
+(12, 'chapter5-generation', 'Chapter 5 AI Generation', 'AI-generated discussion chapter', false, 1),
+(12, 'theory-framework', 'Theoretical Framework Input', 'Theory and citation management', true, 2),
+(13, 'thesis-export', 'Thesis Export', 'Word/HTML document export', false, 1);
+```
+
+### 3. `Step12Theoretical.tsx` — Fix section persistence
+
+**Problem:** Saves `section_mapping` to a column that doesn't exist (fixed by migration above). Also needs fallback parsing from `chapter5_text`.
+
+After the migration, the save code will work. For the restore code, add parsing from `chapter5_text` as fallback:
+
 ```typescript
+// In fetchSavedData, after getting saved record:
+if (saved.section_mapping && Object.keys(saved.section_mapping).length > 0) {
+  // Use section_mapping directly
+  setSections(saved.section_mapping);
+} else if (saved.chapter5_text) {
+  // Parse sections from chapter5_text using heading patterns
+  const parsed = parseChapter5Sections(saved.chapter5_text);
+  setSections(parsed);
+}
+```
+
+### 4. `Step13ThesisBinder.tsx` — Fix Chapter 5 detection
+
+The `ch5Exists` check requires `ch5Text.trim().length > 50`. This is correct but the real issue is the Chapter 5 simply doesn't exist for the current analysis. The fix is:
+- Show the actual `analysis_id` being queried (for debugging)  
+- Add a more helpful message when Chapter 5 is missing
+- Fix the "Refresh" button to actually re-query
+
+### 5. `NewAnalysis.tsx` — Restore completedSteps on load
+
+```typescript
+// After loadAnalysis completes, derive completed steps
 useEffect(() => {
-  const handler = (e: CustomEvent) => {
-    const step = e.detail?.step;
-    if (typeof step === 'number') goToStep(step);
-  };
-  window.addEventListener('navigate-to-step', handler as EventListener);
-  return () => window.removeEventListener('navigate-to-step', handler as EventListener);
-}, [goToStep]);
-```
-
-### Change 2: `Step11AcademicResults.tsx` — Fix stepStatus + section mapping
-**`stepStatus`:**
-```typescript
-const stepStatus = useMemo(() => {
-  const categories = new Set(blocks.filter(b => b.status !== 'pending').map(b => b.test_category));
-  const testTypes = new Set(blocks.filter(b => b.status !== 'pending').map(b => b.test_type));
-  return {
-    descriptive: categories.has('descriptive') || categories.has('normality'),
-    reliability: categories.has('reliability') || categories.has('measurement-validation') || 
-      testTypes.has('cronbach-alpha') || testTypes.has('factor-analysis'),
-    correlation: categories.has('correlation') || 
-      ['spearman', 'pearson', 'kendall', 'partial-correlation'].some(t => testTypes.has(t)),
-    regression: categories.has('regression') || 
-      Array.from(testTypes).some(t => t?.includes('regression')),
-    hypothesis: blocks.some(b => ['compare-means', 'nonparametric', 'anova', 'anova-glm', 'parametric'].includes(b.test_category) && b.status !== 'pending'),
-    diagnostics: categories.has('regression') || 
-      Array.from(testTypes).some(t => t?.includes('regression')),
-  };
-}, [blocks]);
-```
-
-**`getBlocksForSection`** — add test_type matching for correlation:
-```typescript
-const getBlocksForSection = (sectionId: string, allBlocks: AnalysisBlockData[]): AnalysisBlockData[] => {
-  const categories = sectionCategoryMap[sectionId] || [];
-  const correlationTestTypes = ['spearman', 'pearson', 'kendall', 'partial-correlation'];
-  return allBlocks.filter(b => {
-    if (b.status === 'pending') return false;
-    if (categories.includes(b.test_category)) return true;
-    // Special case: Spearman stored as 'nonparametric' but belongs in correlation section
-    if (sectionId === 'correlation' && correlationTestTypes.includes(b.test_type)) return true;
-    return false;
-  });
-};
-```
-
-**`renderBlockTable`** — handle non-table results:
-```typescript
-const renderBlockTable = (block: AnalysisBlockData) => {
-  const hasTableData = block.results?.tables?.length > 0;
-  const hasSummary = block.results?.summary;
-  const hasStatistics = block.results?.statistics;
-  
-  if (!hasTableData && !hasSummary && !hasStatistics) {
-    return (
-      <div key={block.id} className="text-xs text-muted-foreground italic p-2">
-        {block.narrative?.apa || 'No detailed table data for this analysis.'}
-      </div>
-    );
+  if (state.currentStep > 1) {
+    const completed = new Set<number>();
+    for (let i = 1; i < state.currentStep; i++) completed.add(i);
+    setCompletedSteps(completed);
   }
-  // ... existing table rendering
-};
+}, [state.analysisId]); // Only when analysis is loaded
 ```
 
-### Change 3: `Step13ThesisBinder.tsx` — Refresh + Chapter 5 restoration + progress
-- Add a "Refresh" icon button next to the chapter status cards
-- Add a visual progress bar showing: Blocks ready (N) → Chapter 4 ✓ → Chapter 5 ✓ → Export ready
-- Rename "Full Thesis (.htm)" → "Export for Word (.doc)" + "Export HTML (.htm)"
-- Show a count of analysis blocks that will be included
+### 6. `generate-thesis-doc/index.ts` — Section-integrated tables
 
-### Change 4 & 5: AI functions — Switch to Lovable AI gateway
-Both `generate-chapter4` and `generate-chapter5` switch from OpenAI API to Lovable AI gateway:
-```typescript
-const apiKey = Deno.env.get('LOVABLE_API_KEY');
-const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-  method: 'POST',
-  headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    model: 'google/gemini-2.5-flash',
-    messages: [...],
-    max_tokens: 8000,  // Increased from 4000
-  }),
-});
+Parse chapter 4 text line by line. When encountering a `## heading`, check if it matches a section keyword and inject tables for that section right after the heading. Build a section keyword map:
+
+```text
+descriptive/normality/frequencies -> descriptive blocks
+correlation/spearman/pearson -> correlation blocks  
+regression -> regression blocks
+hypothesis/compare/anova/manova -> hypothesis blocks
+reliability/cronbach -> reliability blocks
 ```
 
-This gives 2x more output tokens and uses a model better suited for large structured JSON generation.
+After injecting a block's tables under a section heading, mark it as "used" so it's not duplicated at the end.
 
-### Change 6: `generate-thesis-doc/index.ts` — Section-integrated tables
-Build a section-keyword map and inject tables right after their section heading in Chapter 4:
-```typescript
-const sectionKeywords: Record<string, string[]> = {
-  descriptive: ['descriptive', 'normality', 'frequencies'],
-  correlation: ['correlation', 'spearman', 'pearson'],
-  regression: ['regression'],
-  hypothesis: ['compare-means', 'nonparametric', 'anova', 'anova-glm'],
-  reliability: ['reliability', 'measurement-validation', 'cronbach'],
-};
-```
+### 7. `AnalysisManager.tsx` — Add Step Functions tab
 
-Parse chapter 4 text line by line. When a `## heading` is encountered, check if it matches a section keyword, and if so inject the matching block tables immediately after it.
+Add a second tab "Step Functions" alongside the existing "Tests" tab. The Step Functions tab shows a table grouped by step number with columns: Step, Function, Description, Plan (Free/Pro), Enabled, Order.
 
-Also add a `.doc` download option:
-```typescript
-// Word export (opens natively in Microsoft Word)
-a.download = format === 'word-doc' ? `thesis.doc` : `thesis.htm`;
-```
+### 8. `Step11AcademicResults.tsx` — Add chart rendering + navigation links
+
+In `renderBlockTable`, after rendering tables, also render `results.charts` using Recharts BarChart/LineChart components. Add clickable overview cards that navigate to the relevant step when the section has no data.
 
 ---
 
-## Summary of User-Visible Improvements
+## Files to Modify
 
-After these changes:
-1. **Overview cards** — Reliability, Correlation, Regression, Diagnostics will show green checkmarks when their blocks exist (Spearman counted under Correlation)
-2. **Chapter Editor** — Each section shows its analysis tables inline directly below the section heading, not just for descriptive/hypothesis sections
-3. **Chapter 4 generation** — Uses Gemini 2.5 Flash with 8000 tokens → complete JSON for all 10 sections, no truncation
-4. **Chapter 5 in Step 13** — "Refresh Status" button lets user re-fetch after generating Chapter 5; status correctly shows v1 Ready
-5. **"Go to Step 12" button** — Actually navigates the wizard to step 12
-6. **Export** — Clean "Export for Word (.doc)" and "Export HTML" buttons; tables embedded section by section in export
-7. **All Blocks tab** — Shows narrative and APA text even when no structured table data exists for a block
+| # | Type | File | Change |
+|---|------|------|--------|
+| 1 | Migration | DB | Add `section_mapping` column to `discussion_chapter` |
+| 2 | Migration | DB | Create `step_functions` table with seed data |
+| 3 | Frontend | `Step12Theoretical.tsx` | Fix section restore with `chapter5_text` parsing fallback |
+| 4 | Frontend | `Step13ThesisBinder.tsx` | Improve Chapter 5 detection messaging |
+| 5 | Frontend | `NewAnalysis.tsx` | Restore `completedSteps` from loaded `currentStep` |
+| 6 | Edge Fn | `generate-thesis-doc/index.ts` | Integrate tables section-by-section into chapter text |
+| 7 | Frontend | `AnalysisManager.tsx` | Add "Step Functions" admin tab with CRUD |
+| 8 | Frontend | `Step11AcademicResults.tsx` | Add chart rendering; navigation links on overview cards |
+
+---
+
+## Technical Notes
+
+- The `discussion_chapter` table currently has NO `section_mapping` column. Every `section_mapping` write from Step 12 has been silently dropped. The migration adds it.
+- The DB confirms no `regression` or `reliability` blocks exist. Those overview cards are correctly grey — the user did not run Steps 9/10 for this analysis.
+- Chapter 5 exists only for analysis `f2d089f1` (Feb 15) but the current analysis is `4948d97e` (Feb 19). The user needs to generate Chapter 5 again for the current analysis.
+- The `completedSteps` Set in `NewAnalysis.tsx` is ephemeral React state. When the user navigates away and back, all steps reset to incomplete. The fix derives completed state from the persisted `currentStep`.
