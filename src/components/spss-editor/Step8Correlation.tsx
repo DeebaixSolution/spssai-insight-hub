@@ -58,6 +58,53 @@ export function Step8Correlation({ variables, parsedData, analysisId, hypotheses
 
   const scaleVars = useMemo(() => variables.filter(v => v.measure === 'scale'), [variables]);
 
+  const saveToDatabase = async (testType: string, resultData: any, dvs: string[], ivs: string[]) => {
+    if (!analysisId) return;
+    try {
+      // Build APA narrative
+      let apa = '';
+      if (resultData.tables?.[0]?.rows?.[0]) {
+        const row = resultData.tables[0].rows[0];
+        const r = row['Coefficient'] ?? row['Pearson r'] ?? row["Spearman's rho"] ?? 0;
+        const p = row['Sig. (2-tailed)'] ?? 1;
+        const n = row['N'] ?? 0;
+        const sig = Number(p) < 0.05 ? 'significant' : 'non-significant';
+        const dir = getDirection(Number(r)).toLowerCase();
+        const strength = classifyStrength(Number(r)).toLowerCase();
+        apa = `A ${method === 'spearman' ? 'Spearman rank-order' : 'Pearson'} correlation was conducted. There was a ${sig} ${dir} correlation, ${method === 'spearman' ? 'ρ' : 'r'}(${Number(n) - 2}) = ${Number(r).toFixed(3)}, p = ${Number(p) < 0.001 ? '< .001' : Number(p).toFixed(3)}, indicating a ${strength} association.`;
+      }
+
+      await supabase.from('analysis_blocks').delete()
+        .eq('analysis_id', analysisId)
+        .eq('test_type', testType);
+
+      await supabase.from('analysis_blocks').insert({
+        analysis_id: analysisId,
+        section: 'correlation',
+        section_id: `correlation-${testType}`,
+        test_type: testType,
+        test_category: 'correlation',
+        dependent_variables: dvs,
+        independent_variables: ivs,
+        config: { method },
+        results: resultData,
+        narrative: { apa, interpretation: apa },
+        display_order: 0,
+        status: 'completed',
+      });
+
+      // Update analysis state
+      const { data: existingState } = await supabase.from('analysis_state').select().eq('analysis_id', analysisId).single();
+      if (existingState) {
+        await supabase.from('analysis_state').update({ step_8_completed: true }).eq('analysis_id', analysisId);
+      } else {
+        await supabase.from('analysis_state').insert({ analysis_id: analysisId, step_8_completed: true });
+      }
+    } catch (err) {
+      console.error('Failed to save correlation block:', err);
+    }
+  };
+
   const runPairwise = async () => {
     if (!varA || !varB || !parsedData) return;
     setLoading(true);
@@ -68,7 +115,8 @@ export function Step8Correlation({ variables, parsedData, analysisId, hypotheses
       });
       if (error) throw error;
       setResults({ mode: 'pairwise', ...data.results });
-      toast.success('Pairwise correlation computed');
+      await saveToDatabase(testType, data.results, [varA, varB], []);
+      toast.success('Pairwise correlation computed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
@@ -88,7 +136,8 @@ export function Step8Correlation({ variables, parsedData, analysisId, hypotheses
       });
       if (error) throw error;
       setResults({ mode: 'matrix', ...data.results });
-      toast.success('Correlation matrix computed');
+      await saveToDatabase('correlation-matrix', data.results, scaleVars.map(v => v.name), []);
+      toast.success('Correlation matrix computed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
@@ -109,7 +158,9 @@ export function Step8Correlation({ variables, parsedData, analysisId, hypotheses
       });
       if (error) throw error;
       setResults({ mode: 'dv-centered', ...data.results });
-      toast.success('DV-centered correlations computed');
+      await saveToDatabase('dv-centered-correlation', data.results, [dvVar], ivs);
+      toast.success('DV-centered correlations computed & saved');
+      toast.success('DV-centered correlations computed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };

@@ -45,6 +45,59 @@ export function Step9Regression({ variables, parsedData, analysisId, hypotheses 
     setSelectedIVs(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
   };
 
+  const saveToDatabase = async (testType: string, resultData: any, dvName: string, ivNames: string[]) => {
+    if (!analysisId) return;
+    try {
+      // Build APA narrative
+      let apa = '';
+      const modelSummary = resultData.tables?.find((t: any) => t.title === 'Model Summary');
+      const anova = resultData.tables?.find((t: any) => t.title === 'ANOVA');
+      if (testType !== 'binary-logistic-regression' && modelSummary && anova) {
+        const r2 = modelSummary.rows?.[0]?.['R Square'] ?? 0;
+        const f = anova.rows?.[0]?.F ?? 0;
+        const pF = anova.rows?.[0]?.['Sig.'] ?? 1;
+        const dfReg = anova.rows?.[0]?.df ?? 1;
+        const dfRes = anova.rows?.[1]?.df ?? 1;
+        const sig = Number(pF) < 0.05 ? 'statistically significant' : 'not statistically significant';
+        apa = `A ${testType.includes('simple') ? 'simple' : 'multiple'} linear regression was conducted to predict ${dvName} from ${ivNames.join(', ')}. The overall model was ${sig}, F(${Number(dfReg).toFixed(0)}, ${Number(dfRes).toFixed(0)}) = ${Number(f).toFixed(3)}, p = ${Number(pF) < 0.001 ? '< .001' : Number(pF).toFixed(3)}, explaining ${(Number(r2) * 100).toFixed(1)}% of the variance (R² = ${Number(r2).toFixed(3)}).`;
+      } else if (testType === 'binary-logistic-regression') {
+        const omnibus = resultData.tables?.find((t: any) => t.title?.includes('Omnibus'));
+        const chi = omnibus?.rows?.[0]?.['Chi-square'] ?? 0;
+        const pOmn = omnibus?.rows?.[0]?.['Sig.'] ?? 1;
+        const nag = modelSummary?.rows?.[0]?.["Nagelkerke R²"] ?? 0;
+        apa = `A binary logistic regression was performed to predict ${dvName}. The model was ${Number(pOmn) < 0.05 ? 'statistically significant' : 'not significant'}, χ²(${ivNames.length}) = ${Number(chi).toFixed(3)}, p = ${Number(pOmn) < 0.001 ? '< .001' : Number(pOmn).toFixed(3)}, Nagelkerke R² = ${Number(nag).toFixed(3)}.`;
+      }
+
+      await supabase.from('analysis_blocks').delete()
+        .eq('analysis_id', analysisId)
+        .eq('test_type', testType);
+
+      await supabase.from('analysis_blocks').insert({
+        analysis_id: analysisId,
+        section: 'regression',
+        section_id: `regression-${testType}`,
+        test_type: testType,
+        test_category: 'regression',
+        dependent_variables: [dvName],
+        independent_variables: ivNames,
+        config: { modelType },
+        results: resultData,
+        narrative: { apa, interpretation: apa },
+        display_order: 0,
+        status: 'completed',
+      });
+
+      const { data: existingState } = await supabase.from('analysis_state').select().eq('analysis_id', analysisId).single();
+      if (existingState) {
+        await supabase.from('analysis_state').update({ step_9_completed: true }).eq('analysis_id', analysisId);
+      } else {
+        await supabase.from('analysis_state').insert({ analysis_id: analysisId, step_9_completed: true });
+      }
+    } catch (err) {
+      console.error('Failed to save regression block:', err);
+    }
+  };
+
   const runAnalysis = async () => {
     if (!dv || !parsedData) return;
     setLoading(true);
@@ -62,7 +115,8 @@ export function Step9Regression({ variables, parsedData, analysisId, hypotheses 
       });
       if (error) throw error;
       setResults({ modelType, ...data.results });
-      toast.success('Regression analysis completed');
+      await saveToDatabase(testType, data.results, dv, ivs);
+      toast.success('Regression analysis completed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
