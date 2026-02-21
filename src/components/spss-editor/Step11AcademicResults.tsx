@@ -9,6 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
+  ResponsiveContainer, ScatterChart, Scatter, LineChart, Line,
+  ComposedChart, ReferenceLine, AreaChart, Area
+} from 'recharts';
 
 interface Step11Props {
   analysisId?: string | null;
@@ -254,88 +259,97 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     return found ? row[found] : '';
   };
 
-  // Render SPSS-style table from block results — resilient fallback for non-table results
+  // Render charts from block results
+  const renderBlockCharts = (block: AnalysisBlockData) => {
+    const charts = block.results?.charts;
+    if (!charts?.length) return null;
+    return charts.map((chart: any, idx: number) => {
+      if (!chart?.data) return null;
+      if (chart.type === 'histogram' && chart.data?.bins) {
+        const histData = chart.data.bins.map((b: any) => ({ name: ((b.binStart + b.binEnd) / 2).toFixed(1), count: b.count, normal: b.normalExpected }));
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><ResponsiveContainer width="100%" height={200}><ComposedChart data={histData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><RechartsTooltip contentStyle={{ fontSize: 11 }} /><Bar dataKey="count" fill="hsl(var(--accent))" opacity={0.7} name="Observed" /><Line type="monotone" dataKey="normal" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} name="Normal Curve" /></ComposedChart></ResponsiveContainer></div>);
+      }
+      if (chart.type === 'qq-plot' && Array.isArray(chart.data)) {
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><ResponsiveContainer width="100%" height={200}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" dataKey="theoretical" tick={{ fontSize: 10 }} /><YAxis type="number" dataKey="observed" tick={{ fontSize: 10 }} /><RechartsTooltip /><Scatter data={chart.data} fill="hsl(var(--primary))" r={2} /></ScatterChart></ResponsiveContainer></div>);
+      }
+      if (chart.type === 'boxplot' && chart.data) {
+        const bp = chart.data;
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><div className="text-xs p-3 border rounded-lg bg-muted/30 w-fit space-y-0.5">{[['Max', bp.max], ['Q3', bp.q3], ['Median', bp.median], ['Mean', bp.mean], ['Q1', bp.q1], ['Min', bp.min]].map(([l, v]: any) => <div key={l} className="flex justify-between gap-4"><span className="text-muted-foreground">{l}:</span><span className="font-mono">{typeof v === 'number' ? v.toFixed(2) : '-'}</span></div>)}{bp.outliers?.length > 0 && <div className="text-destructive font-medium">{bp.outliers.length} outlier(s)</div>}</div></div>);
+      }
+      if (chart.type === 'scatter' && Array.isArray(chart.data)) {
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><ResponsiveContainer width="100%" height={200}><ScatterChart><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" dataKey="x" tick={{ fontSize: 10 }} /><YAxis type="number" dataKey="y" tick={{ fontSize: 10 }} /><RechartsTooltip /><Scatter data={chart.data.slice(0, 200)} fill="hsl(var(--primary))" /></ScatterChart></ResponsiveContainer></div>);
+      }
+      if (chart.type === 'bar' && Array.isArray(chart.data)) {
+        const dk = Object.keys(chart.data[0] || {}).find((k: string) => !['group','name','label'].includes(k)) || 'mean';
+        const lk = Object.keys(chart.data[0] || {}).find((k: string) => ['group','name','label'].includes(k)) || 'group';
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><ResponsiveContainer width="100%" height={200}><BarChart data={chart.data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey={lk} tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><RechartsTooltip /><Bar dataKey={dk} fill="hsl(var(--primary))" /></BarChart></ResponsiveContainer></div>);
+      }
+      if ((chart.type === 'line' || chart.type === 'scree') && Array.isArray(chart.data)) {
+        const yk = Object.keys(chart.data[0] || {}).find((k: string) => ['eigenvalue','tpr','y','value'].includes(k)) || 'value';
+        const xk = Object.keys(chart.data[0] || {}).find((k: string) => ['component','fpr','x','name'].includes(k)) || 'name';
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><ResponsiveContainer width="100%" height={200}><LineChart data={chart.data}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey={xk} tick={{ fontSize: 10 }} /><YAxis tick={{ fontSize: 10 }} /><RechartsTooltip />{chart.type === 'scree' && <ReferenceLine y={1} stroke="hsl(var(--destructive))" strokeDasharray="5 5" />}<Line type="monotone" dataKey={yk} stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} /></LineChart></ResponsiveContainer></div>);
+      }
+      if (chart.type === 'heatmap' && Array.isArray(chart.data)) {
+        const hd = chart.data as Array<{ var1: string; var2: string; r: number }>;
+        const vars = [...new Set(hd.flatMap((d: any) => [d.var1, d.var2]))];
+        const gc = (r: number) => r > 0.7 ? 'hsl(210,80%,40%)' : r > 0.3 ? 'hsl(210,60%,60%)' : r > 0.1 ? 'hsl(210,40%,75%)' : r > -0.1 ? 'hsl(0,0%,90%)' : r > -0.3 ? 'hsl(0,40%,75%)' : r > -0.7 ? 'hsl(0,60%,60%)' : 'hsl(0,80%,40%)';
+        return (<div key={`${block.id}-ch-${idx}`} className="my-3"><p className="text-xs font-semibold text-muted-foreground italic mb-1">{chart.title}</p><div className="overflow-x-auto"><table className="text-xs"><thead><tr><th className="px-1 py-0.5"></th>{vars.map(v => <th key={v} className="px-1 py-0.5 text-center max-w-[60px] truncate">{v}</th>)}</tr></thead><tbody>{vars.map(v1 => <tr key={v1}><td className="px-1 py-0.5 font-medium truncate max-w-[60px]">{v1}</td>{vars.map(v2 => { if (v1===v2) return <td key={v2} className="px-1 py-0.5 text-center font-bold" style={{background:'hsl(210,80%,40%)',color:'white'}}>1.00</td>; const c=hd.find((d: any)=>(d.var1===v1&&d.var2===v2)||(d.var1===v2&&d.var2===v1)); const r=c?.r??0; return <td key={v2} className="px-1 py-0.5 text-center" style={{background:gc(r),color:Math.abs(r)>0.5?'white':'inherit'}}>{r.toFixed(2)}</td>;})}</tr>)}</tbody></table></div></div>);
+      }
+      return null;
+    });
+  };
+
+  // Render SPSS-style table from block results
   const renderBlockTable = (block: AnalysisBlockData) => {
     const tables = block.results?.tables;
     const summary = block.results?.summary;
     const statistics = block.results?.statistics;
 
     if (!tables?.length) {
-      // Fallback: show summary, statistics as a simple table, or APA narrative
       return (
         <div key={block.id} className="my-2 space-y-1">
           {summary && <p className="text-xs font-serif text-foreground">{summary}</p>}
           {statistics && typeof statistics === 'object' && (
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse border-t-2 border-b-2 border-foreground">
-                <thead>
-                  <tr className="border-b border-foreground">
-                    <th className="px-2 py-1 text-left font-bold">Statistic</th>
-                    <th className="px-2 py-1 text-left font-bold">Value</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(statistics).map(([k, v]: [string, any], i) => (
-                    <tr key={i} className="border-b border-border">
-                      <td className="px-2 py-1 font-medium">{k}</td>
-                      <td className="px-2 py-1">{typeof v === 'number' ? Number(v).toFixed(3) : String(v ?? '')}</td>
-                    </tr>
-                  ))}
-                </tbody>
+                <thead><tr className="border-b border-foreground"><th className="px-2 py-1 text-left font-bold">Statistic</th><th className="px-2 py-1 text-left font-bold">Value</th></tr></thead>
+                <tbody>{Object.entries(statistics).map(([k, v]: [string, any], i) => (<tr key={i} className="border-b border-border"><td className="px-2 py-1 font-medium">{k}</td><td className="px-2 py-1">{typeof v === 'number' ? Number(v).toFixed(3) : String(v ?? '')}</td></tr>))}</tbody>
               </table>
             </div>
           )}
-          {block.narrative?.apa && <p className="text-xs text-muted-foreground italic font-serif">{block.narrative.apa}</p>}
-          {block.narrative?.interpretation && <p className="text-xs text-foreground font-serif">{block.narrative.interpretation}</p>}
-          {!summary && !statistics && !block.narrative?.apa && (
+          {block.narrative?.apa && <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>}
+          {block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa && <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>}
+          {renderBlockCharts(block)}
+          {!summary && !statistics && !block.narrative?.apa && !block.results?.charts?.length && (
             <p className="text-xs text-muted-foreground italic">No table data available for this block.</p>
           )}
         </div>
       );
     }
 
-    return tables.map((table: any, ti: number) => (
-      <div key={`${block.id}-${ti}`} className="my-3">
-        <p className="text-xs font-semibold text-muted-foreground italic mb-1">
-          Table: {table.title || block.test_type}
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs border-collapse border-t-2 border-b-2 border-foreground">
-            {table.headers && (
-              <thead>
-                <tr className="border-b-2 border-foreground">
-                  {table.headers.map((h: string, hi: number) => (
-                    <th key={hi} className="px-2 py-1 text-left font-bold">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-            )}
-            <tbody>
-              {table.rows?.map((row: any, ri: number) => {
-                const cells = Array.isArray(row)
-                  ? row
-                  : table.headers
-                    ? table.headers.map((h: string) => resolveCell(row, h))
-                    : Object.values(row);
-                return (
-                  <tr key={ri} className="border-b border-border">
-                    {cells.map((cell: any, ci: number) => (
-                      <td key={ci} className="px-2 py-1">{typeof cell === 'number' ? Number(cell).toFixed(3) : String(cell ?? '')}</td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {block.narrative?.apa && (
-          <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>
-        )}
-        {block.narrative?.interpretation && (
-          <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>
-        )}
+    return (
+      <div>
+        {tables.map((table: any, ti: number) => (
+          <div key={`${block.id}-${ti}`} className="my-3">
+            <p className="text-xs font-semibold text-muted-foreground italic mb-1">Table: {table.title || block.test_type}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-collapse border-t-2 border-b-2 border-foreground">
+                {table.headers && (<thead><tr className="border-b-2 border-foreground">{table.headers.map((h: string, hi: number) => (<th key={hi} className="px-2 py-1 text-left font-bold">{h}</th>))}</tr></thead>)}
+                <tbody>
+                  {table.rows?.map((row: any, ri: number) => {
+                    const cells = Array.isArray(row) ? row : table.headers ? table.headers.map((h: string) => resolveCell(row, h)) : Object.values(row);
+                    return (<tr key={ri} className="border-b border-border">{cells.map((cell: any, ci: number) => (<td key={ci} className="px-2 py-1">{typeof cell === 'number' ? Number(cell).toFixed(3) : String(cell ?? '')}</td>))}</tr>);
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        {block.narrative?.apa && <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>}
+        {block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa && <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>}
+        {renderBlockCharts(block)}
       </div>
-    ));
+    );
   };
 
   return (

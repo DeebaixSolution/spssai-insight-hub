@@ -300,6 +300,21 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
                 <Download className="w-3 h-3 mr-1" /> Chapter 5 Only (.doc)
               </Button>
             </div>
+            {/* Appendix export */}
+            <div className="border-t pt-3 mt-3">
+              <h5 className="text-sm font-medium mb-2">📎 Appendix – Full SPSS Output</h5>
+              <p className="text-xs text-muted-foreground mb-2">
+                Export ALL analysis tables, charts, and academic reports from Steps 4–10 as a comprehensive appendix document.
+              </p>
+              <Button
+                variant="outline" size="sm"
+                onClick={() => handleExport('word-doc', 'appendix' as any)}
+                disabled={status.blocks.count === 0 || isExporting}
+                className="w-full"
+              >
+                <Download className="w-3 h-3 mr-1" /> Export Appendix (.doc)
+              </Button>
+            </div>
             {!isPro && (
               <p className="text-xs text-muted-foreground">
                 Free plan: Export with watermark. Upgrade to PRO for full export without watermark.

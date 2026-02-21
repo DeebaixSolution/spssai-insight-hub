@@ -258,7 +258,7 @@ export function Step4Descriptive({ variables, parsedData, analysisId, onComplete
           independent_variables: [],
           config: {},
           results: { tables: [{ title: 'Descriptive Statistics', headers: ['Variable', 'N', 'Mean', 'SD', 'Variance', 'Min', 'Max', 'Range', 'Skewness', 'Kurtosis'], rows: computed.descriptives }], charts: [], summary: '' },
-          narrative: { sectionHeading: '4.1 Descriptive Statistics', introduction: '', tableTitle: 'Table 4.1: Descriptive Statistics', tableInterpretation: '' },
+          narrative: { sectionHeading: '4.1 Descriptive Statistics', introduction: '', tableTitle: 'Table 4.1: Descriptive Statistics', tableInterpretation: computed.reportText.split('4.2')[0] || '', apa: computed.reportText.split('4.2')[0] || '' },
           display_order: 0,
           status: 'completed',
         });
@@ -279,6 +279,39 @@ export function Step4Descriptive({ variables, parsedData, analysisId, onComplete
           status: 'completed',
         });
       });
+
+      // Save normality block with visual diagnostics charts
+      if (computed.normalityTests.length > 0) {
+        const normalityCharts: any[] = [];
+        if (computed.visualDiagnostics) {
+          for (const vd of computed.visualDiagnostics) {
+            normalityCharts.push(
+              { type: 'histogram', title: `Histogram: ${vd.variable}`, data: vd.histogram },
+              { type: 'qq-plot', title: `Q-Q Plot: ${vd.variable}`, data: vd.qqPlot },
+              { type: 'boxplot', title: `Boxplot: ${vd.variable}`, data: vd.boxplot }
+            );
+          }
+        }
+        const normalityApa = computed.reportText.includes('4.2') ? computed.reportText.split('4.2')[1] || '' : '';
+        blocks.push({
+          analysis_id: analysisId,
+          section: 'descriptives',
+          section_id: 'normality-test',
+          test_type: 'normality-test',
+          test_category: 'descriptive',
+          dependent_variables: computed.normalityTests.map(nt => nt.variable),
+          independent_variables: [],
+          config: {},
+          results: {
+            tables: [{ title: 'Tests of Normality', headers: ['Variable', 'Test', 'Statistic', 'df', 'Sig.', 'Normal', 'Parametric'], rows: computed.normalityTests.map(nt => ({ Variable: nt.variable, Test: nt.test, Statistic: nt.statistic, df: nt.df, 'Sig.': nt.sig, Normal: nt.isNormal ? 'Yes' : 'No', Parametric: nt.parametricAllowed ? 'Yes' : 'No' })) }],
+            charts: normalityCharts,
+            summary: '',
+          },
+          narrative: { sectionHeading: '4.2 Normality Testing', apa: normalityApa, interpretation: normalityApa },
+          display_order: computed.frequencies.length + 1,
+          status: 'completed',
+        });
+      }
 
       if (blocks.length > 0) {
         // Delete existing descriptive blocks

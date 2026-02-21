@@ -60,6 +60,39 @@ export function Step10Measurement({ variables, parsedData, analysisId }: Step10M
     { num: 6, label: 'Final Decision' },
   ];
 
+  const saveBlockToDatabase = async (testType: string, testCategory: string, resultData: any, apa: string) => {
+    if (!analysisId) return;
+    try {
+      await supabase.from('analysis_blocks').delete()
+        .eq('analysis_id', analysisId)
+        .eq('test_type', testType);
+
+      await supabase.from('analysis_blocks').insert({
+        analysis_id: analysisId,
+        section: 'measurement',
+        section_id: `measurement-${testType}`,
+        test_type: testType,
+        test_category: testCategory,
+        dependent_variables: selectedItems,
+        independent_variables: [],
+        config: { rotation },
+        results: resultData,
+        narrative: { apa, interpretation: apa },
+        display_order: 0,
+        status: 'completed',
+      });
+
+      const { data: existingState } = await supabase.from('analysis_state').select().eq('analysis_id', analysisId).single();
+      if (existingState) {
+        await supabase.from('analysis_state').update({ step_10_completed: true }).eq('analysis_id', analysisId);
+      } else {
+        await supabase.from('analysis_state').insert({ analysis_id: analysisId, step_10_completed: true });
+      }
+    } catch (err) {
+      console.error('Failed to save measurement block:', err);
+    }
+  };
+
   const runKMO = async () => {
     if (selectedItems.length < 3 || !parsedData) return;
     setLoading(true);
@@ -69,7 +102,10 @@ export function Step10Measurement({ variables, parsedData, analysisId }: Step10M
       });
       if (error) throw error;
       setKmoResults(data.results);
-      toast.success('KMO & Bartlett computed');
+      const kmoVal = data.results?.tables?.[0]?.rows?.find((r: any) => r.Measure?.includes('Kaiser'))?.Value;
+      const apa = kmoVal ? `The Kaiser-Meyer-Olkin measure of sampling adequacy was ${Number(kmoVal).toFixed(3)}, indicating ${interpretKMO(Number(kmoVal)).toLowerCase()} adequacy for factor analysis.` : '';
+      await saveBlockToDatabase('kmo-bartlett', 'measurement-validation', data.results, apa);
+      toast.success('KMO & Bartlett computed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
@@ -87,7 +123,12 @@ export function Step10Measurement({ variables, parsedData, analysisId }: Step10M
       });
       if (error) throw error;
       setEfaResults(data.results);
-      toast.success('Factor analysis completed');
+      const numFactors = data.results?.effectSize?.value ?? '?';
+      const varianceRow = data.results?.tables?.find((t: any) => t.title.includes('Variance'))?.rows;
+      const cumVar = varianceRow?.[Number(numFactors) - 1]?.['Cumulative %'];
+      const apa = `An exploratory factor analysis using PCA with ${rotation === 'varimax' ? 'Varimax' : 'Oblimin'} rotation revealed a ${numFactors}-factor structure explaining ${cumVar ? Number(cumVar).toFixed(1) : '?'}% of total variance.`;
+      await saveBlockToDatabase('factor-analysis', 'measurement-validation', data.results, apa);
+      toast.success('Factor analysis completed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
@@ -101,7 +142,10 @@ export function Step10Measurement({ variables, parsedData, analysisId }: Step10M
       });
       if (error) throw error;
       setReliabilityResults(data.results);
-      toast.success('Reliability analysis completed');
+      const alpha = data.results?.tables?.[0]?.rows?.[0]?.["Cronbach's Alpha"];
+      const apa = alpha ? `The internal consistency was assessed using Cronbach's alpha. The reliability coefficient was α = ${Number(alpha).toFixed(3)}, indicating ${interpretAlpha(Number(alpha)).toLowerCase()} internal consistency.` : '';
+      await saveBlockToDatabase('cronbach-alpha', 'reliability', data.results, apa);
+      toast.success('Reliability analysis completed & saved');
     } catch (e: any) { toast.error(e.message); }
     setLoading(false);
   };
