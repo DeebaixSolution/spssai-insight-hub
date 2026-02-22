@@ -1,124 +1,102 @@
 
-# Fix Plan: Charts, Academic Reports, and Data Persistence for Steps 4-13
+# Comprehensive Fix Plan: Charts in Export, Unified Export, Admin Granular Control, Reports Page, and Master Writing Engine
 
-## Root Causes Identified
+## Issue Summary
 
-### Issue 1: Charts and Graphs Not Appearing in Steps 11 and 13
-
-**Two problems:**
-
-A. **Step 4 normality charts (histograms, Q-Q plots, boxplots):** These are computed client-side in `Step4Descriptive.tsx` as `visualDiagnostics` and rendered using Recharts. However, when saving to `analysis_blocks`, the descriptives block stores `results.charts: []` (empty array). The visual diagnostics data is never persisted in the block's `charts` field.
-
-B. **Step 11 chart rendering:** Even for blocks that DO have chart data (MANOVA has 2 charts, one-way ANOVA has 1 chart), Step 11's `renderBlockTable` function never renders `results.charts`. It only renders `tables`, `statistics`, and `narrative`.
-
-### Issue 2: Academic Reports from Steps 4-10 Not in Steps 11/13
-
-Each step (4, 5, 6, 7, 8, 9, 10) generates in-step academic report text (APA format paragraphs). However:
-- Steps 5/6/7 save blocks with `narrative.apa` and `narrative.interpretation` -- these DO appear in Step 11
-- Step 4 saves `reportText` only in local state, and blocks have empty `narrative.tableInterpretation`
-- **Steps 8, 9, 10 do NOT save to `analysis_blocks` at all** -- results exist only in local React state
-
-### Issue 3: Reliability/Regression/Diagnostics Not Saved
-
-**This is the critical root cause.** Steps 8 (Correlation), 9 (Regression), and 10 (Measurement/Reliability) call `run-analysis` and display results, but **never write to the `analysis_blocks` table**. Only Steps 4, 5, 6, and 7 persist their results. This means:
-- Step 11 can never show correlation, regression, or reliability data
-- Step 13 export can never include these results
-- The overview cards correctly show grey because no blocks exist
-
-### Issue 4: Chapter Appendix Request
-
-The user wants a dedicated appendix section showing ALL tables, charts, and graphs from Steps 4-10 in a "Full SPSS Analysis" format.
+1. **Charts not in export** -- The `generate-thesis-doc` edge function renders non-heatmap/non-boxplot charts as `[See visualization in application]` placeholder text instead of actual data
+2. **Unified export** -- No single "Export All" button that combines Chapter 4 + Chapter 5 + Appendix in one document
+3. **Admin granular control** -- The `step_functions` table currently has only 16 high-level entries (e.g., "Parametric Tests" for Step 5) but does NOT list individual sub-functions (One-Sample T, Independent T, Paired T, One-Way ANOVA, etc.)
+4. **Reports page empty** -- `handleFinish` navigates to `/dashboard/reports` but never creates a `reports` record, so nothing appears; also no way to resume/edit a saved analysis
+5. **Master Writing Engine** -- The current `interpret-results` edge function has a good writing logic library but the prompts need to be restructured to match the 8-layer academic reporting format provided by the user
 
 ---
 
-## Implementation Plan
+## Detailed Changes
 
-### 1. Add Database Persistence to Steps 8, 9, and 10
+### 1. Charts in Export (generate-thesis-doc)
 
-Each step needs a `saveToDatabase` function (like Step 4 has) that:
-- Deletes any existing blocks for that analysis + test_type
-- Creates new `analysis_blocks` records with the computed results
-- Updates `analysis_state` (step_8/9/10_completed)
-
-**Step 8 (Correlation):**
-```
-analysis_blocks record:
-  section: 'correlation'
-  test_type: 'pearson' | 'spearman' | 'correlation-matrix' | 'dv-centered-correlation'
-  test_category: 'correlation'
-  results: { tables, charts (heatmap data, scatter data), summary }
-  narrative: { apa: academic report text }
-```
-
-**Step 9 (Regression):**
-```
-analysis_blocks record:
-  section: 'regression'
-  test_type: 'simple-linear-regression' | 'multiple-linear-regression' | 'binary-logistic-regression'
-  test_category: 'regression'
-  results: { tables, charts (residual plots, predicted vs actual), summary }
-  narrative: { apa: regression interpretation text }
-```
-
-**Step 10 (Measurement):**
-```
-analysis_blocks records (up to 3):
-  - KMO/Bartlett: test_type='kmo-bartlett', test_category='measurement-validation'
-  - EFA: test_type='factor-analysis', test_category='measurement-validation'  
-  - Reliability: test_type='cronbach-alpha', test_category='reliability'
-  results: { tables, charts (scree plot), summary }
-  narrative: { apa: reliability/validity interpretation }
-```
-
-### 2. Fix Step 4 Visual Diagnostics Persistence
-
-In `Step4Descriptive.tsx`, the `saveToDatabase` function saves descriptives blocks with `charts: []`. Fix: save the `visualDiagnostics` data into a normality block's `charts` field:
-
-```
-analysis_blocks record:
-  test_type: 'normality-test'
-  test_category: 'descriptive'
-  results: {
-    tables: [normality results table],
-    charts: [
-      { type: 'histogram', title: 'Histogram: VarName', data: histogramBins },
-      { type: 'qq-plot', title: 'Q-Q Plot: VarName', data: qqData },
-      { type: 'boxplot', title: 'Boxplot: VarName', data: boxplotData }
-    ]
-  }
-```
-
-### 3. Add Chart Rendering to Step 11
-
-In `Step11AcademicResults.tsx`, extend `renderBlockTable` to also render `results.charts`:
-- `type: 'bar'` -- render using Recharts BarChart
-- `type: 'histogram'` -- render using ComposedChart (bars + normal curve line)
-- `type: 'qq-plot'` -- render using ScatterChart
-- `type: 'boxplot'` -- render as a summary card (matching Step 4 style)
-- `type: 'scatter'` -- render using ScatterChart
-- `type: 'heatmap'` -- render as a color-coded HTML table (matching Step 8 style)
-- `type: 'line'` / `type: 'scree'` -- render using LineChart
-
-### 4. Add Charts to Step 13 Export
-
-In `generate-thesis-doc/index.ts`, when rendering analysis block tables section-by-section, also include a text reference for each chart (since HTML export cannot embed Recharts):
+**Problem:** Lines 114-128 of `generate-thesis-doc/index.ts` -- for histogram, scatter, bar, line, and Q-Q charts, the export outputs:
 ```html
-<p class="no-indent"><em>Figure 4.X: [chart title]</em></p>
-<p>See attached chart data for visualization.</p>
+<p><em>[See visualization in application]</em></p>
 ```
 
-For heatmap-type charts, render them as HTML tables in the export (they are just colored tables).
+**Fix:** Render chart data as HTML tables in the export (Word can display tables but not SVG charts). Each chart type gets a data table:
 
-### 5. Create Chapter Appendix
+- **Histogram**: Table with columns `Bin Range | Count | Normal Expected`
+- **Q-Q Plot**: Table with columns `Theoretical | Observed` (first 20 points)
+- **Scatter**: Table with columns `X | Y` (first 30 points)
+- **Bar**: Table with columns `Group | Value`
+- **Line/Scree**: Table with columns `Component | Eigenvalue`
 
-Add a new export option in Step 13: **"Export Appendix (Full SPSS Output)"**
+After each chart data table, add an italic note:
+```html
+<p><em>* Note: Interactive visualization available in application. Data values presented above.</em></p>
+```
 
-This appendix will:
-- List ALL analysis blocks in execution order
-- For each block: show the test type heading, all tables, chart references, APA narrative, and interpretation
-- Format as a proper academic appendix with numbering (Appendix A, B, C...)
+### 2. Unified "Export All" Button
 
-The appendix export uses the same `generate-thesis-doc` edge function with a new `appendixOnly: true` parameter.
+**Problem:** Currently Step 13 has separate buttons for Chapter 4, Chapter 5, and Appendix. No way to get everything in one document.
+
+**Fix:** Add a new `chapterFilter: 'all'` mode to the export:
+- In `Step13ThesisBinder.tsx`: Add a primary "Export Complete Thesis (.doc)" button at the top of Export Options
+- In `generate-thesis-doc/index.ts`: When `chapterFilter === 'all'`, generate: Title Page -> Chapter 4 (with inline tables) -> Chapter 5 -> Appendix (all blocks) -> References
+- This produces one unified document
+
+### 3. Admin Granular Control (Step Functions)
+
+**Problem:** The `step_functions` table has entries like "Parametric Tests" for Step 5, but the user wants individual function control (One-Sample T, Independent T, Paired T, One-Way ANOVA each as separate toggleable rows).
+
+**Fix:** 
+- Insert additional granular rows into `step_functions` via a data operation
+- Step 1: Upload Data, File Validation
+- Step 4: Shapiro-Wilk, Kolmogorov-Smirnov, Descriptive Statistics, Frequencies
+- Step 5: One-Sample T-Test, Independent T-Test, Paired T-Test, One-Way ANOVA
+- Step 6: Mann-Whitney U, Wilcoxon Signed-Rank, Kruskal-Wallis, Friedman, Chi-Square
+- Step 7: Two-Way ANOVA, MANOVA, Repeated Measures, ANCOVA
+- Step 8: Pearson, Spearman, Partial Correlation, Point-Biserial
+- Step 9: Simple Linear, Multiple Linear, Binary Logistic, Regression Diagnostics
+- Step 10: Cronbach Alpha, KMO-Bartlett, EFA, CFA, Composite Reliability
+- Step 11: Chapter 4 Generation, Section Regeneration, Manual Editing
+- Step 12: Chapter 5 Generation, Theory Framework, Citation Manager
+- Step 13: Word Export, HTML Export, Appendix Export, Unified Export
+
+Each row has `is_pro_only` and `is_enabled` toggles in the admin panel. The existing `AnalysisManager.tsx` Step Functions tab already renders these correctly -- we just need more rows in the database.
+
+### 4. Reports Page -- Show Saved Analyses and Exports
+
+**Problem:** `handleFinish` saves the analysis and navigates to `/dashboard/reports`, but no `reports` record is created. The Reports page queries the `reports` table which is always empty. Also, there is no way to return to a previously saved analysis.
+
+**Fix:**
+- In `handleFinish` (`NewAnalysis.tsx`): Create a `reports` record with the analysis data before navigating
+- In `Reports.tsx`: Add a "Saved Analyses" tab that queries `analyses` table directly (not just `reports`), allowing users to click and resume any analysis by navigating back to `/dashboard/new-analysis` with the `analysisId` in state
+- Add a "Re-export" button on each report card that navigates to Step 13 of that analysis
+- Add actual download functionality: store export HTML content in the `thesis_exports` table `file_url` field (as a data URL or blob) so users can re-download
+
+### 5. Master Writing Engine Integration
+
+**Problem:** The user has provided a comprehensive 8-layer writing prompt structure that must be integrated into the `interpret-results` edge function and the `generate-chapter4` edge function.
+
+**Fix:** Update the `interpret-results` edge function system prompt to enforce the 8-layer structure:
+1. Test Identification
+2. Statistical Evidence (APA format)
+3. Decision Rule (H0 reject/fail)
+4. Effect Size Interpretation (with classification thresholds)
+5. Practical Interpretation
+6. Assumption Reporting
+7. Post Hoc Reporting
+8. Graph Interpretation
+
+The function already has `WritingLogic` per test type with `apaNotation`, `introTemplate`, `narrativePattern`, etc. The fix adds:
+- A structured output format requirement in the system prompt
+- Table footnotes with decision rules (italic, with asterisks)
+- Each block's narrative must include all 8 layers
+- Save the structured narrative as `{ methodology, statistical_result, effect_interpretation, assumption_report, posthoc_report, graph_interpretation, hypothesis_decision, apa }` in the `narrative` JSONB field
+
+Also update `generate-chapter4` to instruct the AI to follow the same academic writing rules and include table footnotes.
+
+For table footnotes in Step 11 and exports:
+- After each table, add italic footnotes: `*p < .05. **p < .01. ***p < .001.`
+- Add decision rule note: `*Note: The null hypothesis was [rejected/not rejected] at the .05 significance level.`
 
 ---
 
@@ -126,39 +104,76 @@ The appendix export uses the same `generate-thesis-doc` edge function with a new
 
 | # | File | Change |
 |---|------|--------|
-| 1 | `src/components/spss-editor/Step8Correlation.tsx` | Add `saveToDatabase()` after successful computation -- persist tables, charts (heatmap, scatter), and academic report to `analysis_blocks` |
-| 2 | `src/components/spss-editor/Step9Regression.tsx` | Add `saveToDatabase()` -- persist model tables, diagnostic charts, and regression interpretation to `analysis_blocks` |
-| 3 | `src/components/spss-editor/Step10Measurement.tsx` | Add `saveToDatabase()` -- persist KMO, EFA (with scree chart), and Cronbach alpha results to `analysis_blocks` |
-| 4 | `src/components/spss-editor/Step4Descriptive.tsx` | Fix `saveToDatabase()` to include a normality block with visual diagnostics (histogram, Q-Q, boxplot) in `charts` field |
-| 5 | `src/components/spss-editor/Step11AcademicResults.tsx` | Add chart rendering in `renderBlockTable` using Recharts (bar, scatter, histogram, heatmap, line) |
-| 6 | `src/components/spss-editor/Step13ThesisBinder.tsx` | Add "Export Appendix" button; include chart references in export |
-| 7 | `supabase/functions/generate-thesis-doc/index.ts` | Support `appendixOnly` mode; render heatmap charts as HTML tables in export |
+| 1 | `supabase/functions/generate-thesis-doc/index.ts` | Render chart data as HTML tables instead of placeholder text; add `chapterFilter: 'all'` unified export mode |
+| 2 | `src/components/spss-editor/Step13ThesisBinder.tsx` | Add "Export Complete Thesis" button; create `reports` record on export |
+| 3 | `src/pages/dashboard/NewAnalysis.tsx` | Create `reports` record in `handleFinish` |
+| 4 | `src/pages/dashboard/Reports.tsx` | Add "Saved Analyses" tab showing all analyses with resume/re-export buttons |
+| 5 | `supabase/functions/interpret-results/index.ts` | Restructure system prompt to enforce 8-layer academic writing format; add structured narrative output |
+| 6 | `supabase/functions/generate-chapter4/index.ts` | Add master writing engine rules to prompt; require table footnotes |
+| 7 | `src/components/spss-editor/Step11AcademicResults.tsx` | Add table footnotes (significance markers) after each rendered table |
+| 8 | Database (data insert) | Insert ~40 granular step function rows into `step_functions` table |
 
 ---
 
 ## Technical Details
 
-### Why Steps 8/9/10 Don't Save
+### Chart Data Tables in Export
 
-Looking at the code:
-- **Step 5** (`Step5Parametric.tsx`): Has `analysis_blocks.insert` at line 176
-- **Step 6** (`Step6NonParametric.tsx`): Has `analysis_blocks.insert` at line 173  
-- **Step 7** (`Step7AnovaGLM.tsx`): Has `analysis_blocks.insert` at line 143
-- **Step 8** (`Step8Correlation.tsx`): NO `analysis_blocks` reference at all
-- **Step 9** (`Step9Regression.tsx`): NO `analysis_blocks` reference at all
-- **Step 10** (`Step10Measurement.tsx`): NO `analysis_blocks` reference at all
+For each chart type, render an HTML table with the actual data values:
 
-Steps 8-10 were built to compute and display results locally but the persistence layer was never added. This is the primary reason reliability, regression, and correlation data never appears in Steps 11/13.
-
-### Chart Data Structure in Database
-
-Blocks that DO have charts (MANOVA, one-way ANOVA) store them as:
-```json
-{ "type": "bar", "title": "Group Means", "data": [{ "group": "A", "mean": 3.5 }, ...] }
+```text
+Histogram -> Bin Range | Count | Normal Expected
+Q-Q Plot  -> Theoretical | Observed (max 20 rows)
+Scatter   -> X | Y (max 30 rows) + note if truncated
+Bar       -> Group Label | Value
+Line      -> X Label | Y Value
+Scree     -> Component | Eigenvalue
 ```
 
-Step 4 visual diagnostics use a different structure with `bins`, `theoretical`/`observed`, and boxplot stats. These need to be normalized into the standard chart format before saving.
+This approach works in Word exports because HTML tables render natively.
 
-### Heatmap Rendering in Export
+### Unified Export Structure
 
-The correlation heatmap is stored as chart data `[{ var1, var2, r, p }]`. In HTML export, this can be rendered as a colored HTML table (same as Step 8 renders it), which Word will display correctly.
+When `chapterFilter === 'all'`:
+```text
+1. Title Page
+2. Table of Contents (section headings)
+3. Chapter 4: Results (with inline analysis tables + charts-as-tables)
+4. Chapter 5: Discussion
+5. Appendix: Full SPSS Output (all blocks in category order)
+6. References
+```
+
+### Reports Page Architecture
+
+The Reports page will have two tabs:
+- **Reports**: Shows `thesis_exports` records (actual exported documents) with re-download capability
+- **Saved Analyses**: Shows `analyses` records with status, step progress, and resume button
+
+### Master Writing Engine Narrative Structure
+
+Each analysis block's `narrative` field will be structured as:
+```json
+{
+  "methodology": "A one-way ANOVA was conducted to...",
+  "statistical_result": "F(2, 52) = 4.23, p = .019, n^2 = .14",
+  "effect_interpretation": "The effect size was large...",
+  "assumption_report": "Levene's test was satisfied...",
+  "posthoc_report": "Tukey HSD indicated...",
+  "graph_interpretation": "The bar chart illustrates...",
+  "hypothesis_decision": "The null hypothesis was rejected.",
+  "apa": "Combined APA paragraph..."
+}
+```
+
+### Table Footnotes
+
+After each SPSS-style table in Step 11 and exports:
+```html
+<p style="font-size: 9pt; font-style: italic;">
+  *p < .05. **p < .01. ***p < .001.
+</p>
+<p style="font-size: 9pt; font-style: italic;">
+  Note. N = 55. The null hypothesis was rejected at the .05 significance level.
+</p>
+```
