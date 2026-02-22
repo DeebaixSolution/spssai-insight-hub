@@ -29,6 +29,89 @@ function matchBlockToSection(heading: string, block: any): boolean {
   return false;
 }
 
+// ========== CHART DATA TABLE RENDERERS ==========
+
+function renderHistogramTableHtml(chart: any, figNum: { value: number }): string {
+  if (!chart.data?.bins || !Array.isArray(chart.data.bins)) return '';
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Histogram'}</p>`;
+  html += '<table style="font-size: 9pt;">';
+  html += '<tr><th>Bin Range</th><th style="text-align:right;">Count</th><th style="text-align:right;">Normal Expected</th></tr>';
+  for (const bin of chart.data.bins) {
+    const range = `${Number(bin.binStart).toFixed(1)} – ${Number(bin.binEnd).toFixed(1)}`;
+    html += `<tr><td>${range}</td><td style="text-align:right;">${bin.count ?? ''}</td><td style="text-align:right;">${typeof bin.normalExpected === 'number' ? bin.normalExpected.toFixed(2) : ''}</td></tr>`;
+  }
+  html += '</table>';
+  html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">* Note: Interactive visualization available in application. Data values presented above.</p>`;
+  figNum.value++;
+  return html;
+}
+
+function renderQQPlotTableHtml(chart: any, figNum: { value: number }): string {
+  if (!Array.isArray(chart.data)) return '';
+  const points = chart.data.slice(0, 20);
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Q-Q Plot'}</p>`;
+  html += '<table style="font-size: 9pt;">';
+  html += '<tr><th style="text-align:right;">Theoretical</th><th style="text-align:right;">Observed</th></tr>';
+  for (const pt of points) {
+    html += `<tr><td style="text-align:right;">${typeof pt.theoretical === 'number' ? pt.theoretical.toFixed(3) : pt.theoretical}</td><td style="text-align:right;">${typeof pt.observed === 'number' ? pt.observed.toFixed(3) : pt.observed}</td></tr>`;
+  }
+  if (chart.data.length > 20) html += `<tr><td colspan="2" style="font-style:italic;">... ${chart.data.length - 20} additional points omitted</td></tr>`;
+  html += '</table>';
+  html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">* Note: Interactive visualization available in application. Data values presented above.</p>`;
+  figNum.value++;
+  return html;
+}
+
+function renderScatterTableHtml(chart: any, figNum: { value: number }): string {
+  if (!Array.isArray(chart.data)) return '';
+  const points = chart.data.slice(0, 30);
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Scatter Plot'}</p>`;
+  html += '<table style="font-size: 9pt;">';
+  html += '<tr><th style="text-align:right;">X</th><th style="text-align:right;">Y</th></tr>';
+  for (const pt of points) {
+    html += `<tr><td style="text-align:right;">${typeof pt.x === 'number' ? pt.x.toFixed(3) : pt.x}</td><td style="text-align:right;">${typeof pt.y === 'number' ? pt.y.toFixed(3) : pt.y}</td></tr>`;
+  }
+  if (chart.data.length > 30) html += `<tr><td colspan="2" style="font-style:italic;">... ${chart.data.length - 30} additional points omitted</td></tr>`;
+  html += '</table>';
+  html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">* Note: Interactive visualization available in application. Data values presented above.</p>`;
+  figNum.value++;
+  return html;
+}
+
+function renderBarTableHtml(chart: any, figNum: { value: number }): string {
+  if (!Array.isArray(chart.data)) return '';
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Bar Chart'}</p>`;
+  html += '<table style="font-size: 9pt;">';
+  const keys = Object.keys(chart.data[0] || {});
+  const labelKey = keys.find(k => ['group', 'name', 'label', 'category'].includes(k.toLowerCase())) || keys[0];
+  const valueKey = keys.find(k => !['group', 'name', 'label', 'category'].includes(k.toLowerCase())) || keys[1];
+  html += `<tr><th>${labelKey}</th><th style="text-align:right;">${valueKey}</th></tr>`;
+  for (const item of chart.data) {
+    html += `<tr><td>${item[labelKey] ?? ''}</td><td style="text-align:right;">${typeof item[valueKey] === 'number' ? item[valueKey].toFixed(3) : (item[valueKey] ?? '')}</td></tr>`;
+  }
+  html += '</table>';
+  html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">* Note: Interactive visualization available in application. Data values presented above.</p>`;
+  figNum.value++;
+  return html;
+}
+
+function renderLineTableHtml(chart: any, figNum: { value: number }): string {
+  if (!Array.isArray(chart.data)) return '';
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Line Chart'}</p>`;
+  html += '<table style="font-size: 9pt;">';
+  const keys = Object.keys(chart.data[0] || {});
+  const xKey = keys.find(k => ['component', 'x', 'name', 'fpr'].includes(k.toLowerCase())) || keys[0];
+  const yKey = keys.find(k => ['eigenvalue', 'y', 'value', 'tpr'].includes(k.toLowerCase())) || keys[1];
+  html += `<tr><th>${xKey}</th><th style="text-align:right;">${yKey}</th></tr>`;
+  for (const item of chart.data) {
+    html += `<tr><td>${item[xKey] ?? ''}</td><td style="text-align:right;">${typeof item[yKey] === 'number' ? item[yKey].toFixed(3) : (item[yKey] ?? '')}</td></tr>`;
+  }
+  html += '</table>';
+  html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">* Note: Interactive visualization available in application. Data values presented above.</p>`;
+  figNum.value++;
+  return html;
+}
+
 function renderHeatmapHtml(chart: any, figNum: { value: number }): string {
   if (chart.type !== 'heatmap' || !Array.isArray(chart.data)) return '';
   const heatData = chart.data as Array<{ var1: string; var2: string; r: number; p: number }>;
@@ -67,6 +150,64 @@ function renderHeatmapHtml(chart: any, figNum: { value: number }): string {
   return html;
 }
 
+function renderBoxplotTableHtml(chart: any, figNum: { value: number }): string {
+  if (!chart.data) return '';
+  const bp = chart.data;
+  let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title || 'Boxplot'}</p>`;
+  html += `<table style="font-size: 9pt;"><tr><th>Statistic</th><th style="text-align:right;">Value</th></tr>`;
+  for (const [label, val] of [['Max', bp.max], ['Upper Whisker', bp.upperWhisker], ['Q3', bp.q3], ['Median', bp.median], ['Mean', bp.mean], ['Q1', bp.q1], ['Lower Whisker', bp.lowerWhisker], ['Min', bp.min]] as [string, any][]) {
+    html += `<tr><td>${label}</td><td style="text-align:right;">${typeof val === 'number' ? Number(val).toFixed(3) : (val ?? '')}</td></tr>`;
+  }
+  if (bp.outliers?.length) html += `<tr><td>Outliers</td><td style="text-align:right;">${bp.outliers.length}</td></tr>`;
+  html += `</table>`;
+  figNum.value++;
+  return html;
+}
+
+// ========== RENDER CHART DISPATCH ==========
+
+function renderChartHtml(chart: any, figNum: { value: number }): string {
+  if (!chart?.type) return '';
+  switch (chart.type) {
+    case 'heatmap': return renderHeatmapHtml(chart, figNum);
+    case 'histogram': return renderHistogramTableHtml(chart, figNum);
+    case 'qq-plot': return renderQQPlotTableHtml(chart, figNum);
+    case 'scatter': return renderScatterTableHtml(chart, figNum);
+    case 'bar': return renderBarTableHtml(chart, figNum);
+    case 'line': case 'scree': return renderLineTableHtml(chart, figNum);
+    case 'boxplot': return renderBoxplotTableHtml(chart, figNum);
+    default:
+      if (chart.title) {
+        let html = `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title}</p>`;
+        html += `<p class="no-indent"><em>[Chart data type "${chart.type}" — see application for interactive visualization]</em></p>`;
+        figNum.value++;
+        return html;
+      }
+      return '';
+  }
+}
+
+// ========== TABLE FOOTNOTES ==========
+
+function renderTableFootnotes(block: any): string {
+  let html = '';
+  // Check if any table has p-values to add significance footnotes
+  const hasPValues = block.results?.tables?.some((t: any) => 
+    t.rows?.some((r: any) => {
+      const row = typeof r === 'object' ? r : {};
+      return row.p !== undefined || row['p-value'] !== undefined || row['Sig.'] !== undefined;
+    })
+  );
+  if (hasPValues) {
+    html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">*p < .05. **p < .01. ***p < .001.</p>`;
+  }
+  // Add hypothesis decision if available in narrative
+  if (block.narrative?.hypothesis_decision) {
+    html += `<p class="no-indent" style="font-size: 9pt; font-style: italic;">Note. ${block.narrative.hypothesis_decision}</p>`;
+  }
+  return html;
+}
+
 function renderBlockTablesHtml(block: any, tableNum: { value: number }, figNum: { value: number }): string {
   let html = '';
   if (block.results?.tables) {
@@ -94,6 +235,8 @@ function renderBlockTablesHtml(block: any, tableNum: { value: number }, figNum: 
         }
       }
       html += `</table>`;
+      // Add footnotes after each table
+      html += renderTableFootnotes(block);
       tableNum.value++;
     }
   } else if (block.results?.statistics && typeof block.results.statistics === 'object') {
@@ -103,34 +246,30 @@ function renderBlockTablesHtml(block: any, tableNum: { value: number }, figNum: 
       html += `<tr><td>${k}</td><td>${typeof v === 'number' ? Number(v).toFixed(3) : String(v ?? '')}</td></tr>`;
     }
     html += `</table>`;
+    html += renderTableFootnotes(block);
     tableNum.value++;
   }
 
-  // Render charts (heatmaps as HTML tables, others as figure references)
+  // Render ALL charts as HTML data tables
   if (block.results?.charts && Array.isArray(block.results.charts)) {
     for (const chart of block.results.charts) {
-      if (chart.type === 'heatmap') {
-        html += renderHeatmapHtml(chart, figNum);
-      } else if (chart.title) {
-        html += `<p class="no-indent" style="font-style: italic;">Figure 4.${figNum.value}: ${chart.title}</p>`;
-        if (chart.type === 'boxplot' && chart.data) {
-          const bp = chart.data;
-          html += `<table style="font-size: 9pt;"><tr><th>Statistic</th><th>Value</th></tr>`;
-          for (const [label, val] of [['Max', bp.max], ['Upper Whisker', bp.upperWhisker], ['Q3', bp.q3], ['Median', bp.median], ['Mean', bp.mean], ['Q1', bp.q1], ['Lower Whisker', bp.lowerWhisker], ['Min', bp.min]]) {
-            html += `<tr><td>${label}</td><td>${typeof val === 'number' ? Number(val).toFixed(3) : val}</td></tr>`;
-          }
-          if (bp.outliers?.length) html += `<tr><td>Outliers</td><td>${bp.outliers.length}</td></tr>`;
-          html += `</table>`;
-        } else {
-          html += `<p class="no-indent"><em>[See visualization in application]</em></p>`;
-        }
-        figNum.value++;
-      }
+      html += renderChartHtml(chart, figNum);
     }
   }
 
-  if (block.narrative?.apa) html += `<p>${block.narrative.apa}</p>`;
-  if (block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa) html += `<p>${block.narrative.interpretation}</p>`;
+  // Render narrative - support both structured and simple formats
+  if (block.narrative?.methodology) html += `<p>${block.narrative.methodology}</p>`;
+  if (block.narrative?.statistical_result) html += `<p>${block.narrative.statistical_result}</p>`;
+  if (block.narrative?.effect_interpretation) html += `<p>${block.narrative.effect_interpretation}</p>`;
+  if (block.narrative?.assumption_report) html += `<p>${block.narrative.assumption_report}</p>`;
+  if (block.narrative?.posthoc_report) html += `<p>${block.narrative.posthoc_report}</p>`;
+  if (block.narrative?.graph_interpretation) html += `<p>${block.narrative.graph_interpretation}</p>`;
+  if (block.narrative?.hypothesis_decision) html += `<p>${block.narrative.hypothesis_decision}</p>`;
+  // Fallback to simple apa/interpretation
+  if (!block.narrative?.methodology) {
+    if (block.narrative?.apa) html += `<p>${block.narrative.apa}</p>`;
+    if (block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa) html += `<p>${block.narrative.interpretation}</p>`;
+  }
   return html;
 }
 
@@ -179,41 +318,74 @@ serve(async (req) => {
 <div class="page-break"></div>`;
 
       html += `<h1>APPENDIX: FULL SPSS ANALYSIS OUTPUT</h1>`;
+      html += renderAppendixContent(blocks, tableNum, figNum);
 
-      // Group blocks by category
-      const categoryOrder = ['descriptive', 'correlation', 'regression', 'compare-means', 'nonparametric', 'anova-glm', 'reliability', 'measurement-validation'];
-      const categoryLabels: Record<string, string> = {
-        'descriptive': 'Descriptive Statistics & Normality',
-        'correlation': 'Correlation Analysis',
-        'regression': 'Regression Analysis',
-        'compare-means': 'Parametric Tests (Mean Comparisons)',
-        'nonparametric': 'Non-Parametric Tests',
-        'anova-glm': 'ANOVA / GLM',
-        'reliability': 'Reliability Analysis',
-        'measurement-validation': 'Measurement Validation (EFA/KMO)',
-      };
-
-      let appendixLetter = 'A';
-      for (const cat of categoryOrder) {
-        const catBlocks = blocks.filter((b: any) => b.test_category === cat);
-        if (catBlocks.length === 0) continue;
-
-        html += `<h2>Appendix ${appendixLetter}: ${categoryLabels[cat] || cat}</h2>`;
-        for (const block of catBlocks) {
-          html += `<h3>${block.test_type}</h3>`;
-          html += renderBlockTablesHtml(block, tableNum, figNum);
-        }
-        appendixLetter = String.fromCharCode(appendixLetter.charCodeAt(0) + 1);
+      if (!isPro) {
+        html += `<div class="watermark"><p class="center">Generated by SPSS AI Platform — Upgrade to PRO for full export</p></div>`;
       }
 
-      // Catch any blocks not in known categories
-      const usedCats = new Set(categoryOrder);
-      const remainingBlocks = blocks.filter((b: any) => !usedCats.has(b.test_category));
-      if (remainingBlocks.length > 0) {
-        html += `<h2>Appendix ${appendixLetter}: Additional Analyses</h2>`;
-        for (const block of remainingBlocks) {
-          html += `<h3>${block.test_type}</h3>`;
-          html += renderBlockTablesHtml(block, tableNum, figNum);
+      html += `</body></html>`;
+      return new Response(JSON.stringify({ content: html, format: 'html' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ==================== UNIFIED "ALL" MODE ====================
+    if (chapterFilter === 'all') {
+      // Title page
+      html += `<div style="text-align: center; margin-top: 3in;">
+  <p class="center" style="font-size: 18pt; font-weight: bold;">COMPLETE THESIS DOCUMENT</p>
+  <p class="center" style="margin-top: 0.5in; font-size: 14pt;">Results, Discussion, and Appendix</p>
+  <p class="center" style="margin-top: 2in; font-size: 10pt;">Generated by SPSS AI Academic Platform</p>
+</div>
+<div class="page-break"></div>`;
+
+      // Table of Contents
+      html += `<h1 style="page-break-before: avoid;">TABLE OF CONTENTS</h1>`;
+      html += `<p class="no-indent">Chapter 4: Results and Data Analysis</p>`;
+      html += `<p class="no-indent">Chapter 5: Discussion and Conclusion</p>`;
+      html += `<p class="no-indent">Appendix: Full SPSS Analysis Output</p>`;
+      if (citations?.length > 0) html += `<p class="no-indent">References</p>`;
+      html += `<div class="page-break"></div>`;
+
+      // Chapter 4
+      html += `<h1>CHAPTER 4</h1><h2>RESULTS AND DATA ANALYSIS</h2>`;
+      if (chapter4Text) {
+        html += renderChapterText(chapter4Text, blocks, usedBlockIds, tableNum, figNum);
+      } else {
+        html += `<p>Chapter 4 content not available.</p>`;
+      }
+      for (const block of blocks) {
+        if (usedBlockIds.has(block.id)) continue;
+        html += renderBlockTablesHtml(block, tableNum, figNum);
+        usedBlockIds.add(block.id);
+      }
+      html += `<div class="page-break"></div>`;
+
+      // Chapter 5
+      html += `<h1>CHAPTER 5</h1><h2>DISCUSSION AND CONCLUSION</h2>`;
+      if (chapter5Text) {
+        html += renderPlainChapterText(chapter5Text);
+      } else {
+        html += `<p>Chapter 5 content not available.</p>`;
+      }
+      html += `<div class="page-break"></div>`;
+
+      // Appendix
+      html += `<h1>APPENDIX</h1><h2>FULL SPSS ANALYSIS OUTPUT</h2>`;
+      const appTableNum = { value: 1 };
+      const appFigNum = { value: 1 };
+      html += renderAppendixContent(blocks, appTableNum, appFigNum);
+      html += `<div class="page-break"></div>`;
+
+      // References
+      if (isPro && citations && citations.length > 0) {
+        html += `<h1>REFERENCES</h1>`;
+        const sortedCitations = [...citations].sort((a: any, b: any) => (a.author || '').localeCompare(b.author || ''));
+        for (const c of sortedCitations) {
+          html += `<p class="hanging">${c.author} (${c.year}). ${c.title}. <em>${c.journal || ''}</em>.`;
+          if (c.doi) html += ` https://doi.org/${c.doi}`;
+          html += `</p>`;
         }
       }
 
@@ -241,28 +413,7 @@ serve(async (req) => {
 <h2>RESULTS AND DATA ANALYSIS</h2>`;
 
       if (chapter4Text) {
-        const ch4Lines = String(chapter4Text).split('\n');
-        let pendingHeading = '';
-        for (const line of ch4Lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith('## ')) {
-            pendingHeading = trimmed.replace(/^##\s*/, '');
-            html += `<h2>${pendingHeading}</h2>`;
-            // Inject matching block tables after this heading
-            for (const block of blocks) {
-              if (usedBlockIds.has(block.id)) continue;
-              if (matchBlockToSection(pendingHeading, block)) {
-                html += renderBlockTablesHtml(block, tableNum, figNum);
-                usedBlockIds.add(block.id);
-              }
-            }
-          } else if (trimmed.startsWith('### ')) {
-            html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
-          } else {
-            html += `<p>${trimmed}</p>`;
-          }
-        }
+        html += renderChapterText(chapter4Text, blocks, usedBlockIds, tableNum, figNum);
       } else {
         html += `<p>Chapter 4 content not available.</p>`;
       }
@@ -283,18 +434,7 @@ serve(async (req) => {
 <h2>DISCUSSION AND CONCLUSION</h2>`;
 
       if (chapter5Text) {
-        const ch5Lines = String(chapter5Text).split('\n');
-        for (const line of ch5Lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed.startsWith('## ')) {
-            html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
-          } else if (trimmed.startsWith('### ')) {
-            html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
-          } else {
-            html += `<p>${trimmed}</p>`;
-          }
-        }
+        html += renderPlainChapterText(chapter5Text);
       } else {
         html += `<p>Chapter 5 content not available.</p>`;
       }
@@ -331,3 +471,88 @@ serve(async (req) => {
     });
   }
 });
+
+// ========== HELPER: Render chapter text with inline block injection ==========
+function renderChapterText(text: string, blocks: any[], usedBlockIds: Set<string>, tableNum: { value: number }, figNum: { value: number }): string {
+  let html = '';
+  const lines = String(text).split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('## ')) {
+      const heading = trimmed.replace(/^##\s*/, '');
+      html += `<h2>${heading}</h2>`;
+      for (const block of blocks) {
+        if (usedBlockIds.has(block.id)) continue;
+        if (matchBlockToSection(heading, block)) {
+          html += renderBlockTablesHtml(block, tableNum, figNum);
+          usedBlockIds.add(block.id);
+        }
+      }
+    } else if (trimmed.startsWith('### ')) {
+      html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
+    } else {
+      html += `<p>${trimmed}</p>`;
+    }
+  }
+  return html;
+}
+
+// ========== HELPER: Render plain chapter text ==========
+function renderPlainChapterText(text: string): string {
+  let html = '';
+  const lines = String(text).split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('## ')) {
+      html += `<h2>${trimmed.replace(/^##\s*/, '')}</h2>`;
+    } else if (trimmed.startsWith('### ')) {
+      html += `<h3>${trimmed.replace(/^###\s*/, '')}</h3>`;
+    } else {
+      html += `<p>${trimmed}</p>`;
+    }
+  }
+  return html;
+}
+
+// ========== HELPER: Render appendix content ==========
+function renderAppendixContent(blocks: any[], tableNum: { value: number }, figNum: { value: number }): string {
+  let html = '';
+  const categoryOrder = ['descriptive', 'correlation', 'regression', 'compare-means', 'nonparametric', 'anova-glm', 'reliability', 'measurement-validation'];
+  const categoryLabels: Record<string, string> = {
+    'descriptive': 'Descriptive Statistics & Normality',
+    'correlation': 'Correlation Analysis',
+    'regression': 'Regression Analysis',
+    'compare-means': 'Parametric Tests (Mean Comparisons)',
+    'nonparametric': 'Non-Parametric Tests',
+    'anova-glm': 'ANOVA / GLM',
+    'reliability': 'Reliability Analysis',
+    'measurement-validation': 'Measurement Validation (EFA/KMO)',
+  };
+
+  let appendixLetter = 'A';
+  for (const cat of categoryOrder) {
+    const catBlocks = blocks.filter((b: any) => b.test_category === cat);
+    if (catBlocks.length === 0) continue;
+
+    html += `<h2>Appendix ${appendixLetter}: ${categoryLabels[cat] || cat}</h2>`;
+    for (const block of catBlocks) {
+      html += `<h3>${block.test_type}</h3>`;
+      html += renderBlockTablesHtml(block, tableNum, figNum);
+    }
+    appendixLetter = String.fromCharCode(appendixLetter.charCodeAt(0) + 1);
+  }
+
+  // Catch any blocks not in known categories
+  const usedCats = new Set(categoryOrder);
+  const remainingBlocks = blocks.filter((b: any) => !usedCats.has(b.test_category));
+  if (remainingBlocks.length > 0) {
+    html += `<h2>Appendix ${appendixLetter}: Additional Analyses</h2>`;
+    for (const block of remainingBlocks) {
+      html += `<h3>${block.test_type}</h3>`;
+      html += renderBlockTablesHtml(block, tableNum, figNum);
+    }
+  }
+  return html;
+}

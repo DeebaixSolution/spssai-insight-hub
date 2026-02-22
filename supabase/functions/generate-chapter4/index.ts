@@ -37,9 +37,24 @@ serve(async (req) => {
       ? `\nONLY generate content for section: "${sectionId}". Return JSON with ONLY that key.`
       : '';
 
-    const prompt = `You are an academic writing assistant generating Chapter 4: Results and Data Analysis for a thesis.
+    const prompt = `You are the SPSS AI Academic Reporting Engine generating Chapter 4: Results and Data Analysis.
 
-Given these analysis results and hypotheses, generate structured academic content. Use formal, objective, APA-7 style. Reference tables as "Table 4.X". Use the actual statistical values provided — NEVER fabricate statistics.
+STRICT RULES:
+1. NEVER invent statistics. Use ONLY values from the data below.
+2. Use formal, objective, APA-7 style. Past tense. Third person. No AI meta-language.
+3. Reference tables as "Table 4.X" and figures as "Figure 4.X".
+4. For each statistical result, follow this 8-LAYER STRUCTURE:
+   Layer 1 - Test Identification: State what analysis was conducted and why.
+   Layer 2 - Statistical Evidence: Report in APA format (e.g., F(df1, df2) = X.XX, p = .XXX, η² = .XX)
+   Layer 3 - Decision Rule: If p < .05 → "The null hypothesis was rejected." If p ≥ .05 → "The null hypothesis was not rejected."
+   Layer 4 - Effect Size: Classify (η² ≥ .14 = Large, .06–.13 = Medium, .01–.05 = Small; Cohen's d ≥ .80 = Large, .50–.79 = Medium, .20–.49 = Small)
+   Layer 5 - Practical Interpretation: Translate meaning in scientific terms.
+   Layer 6 - Assumption Reporting: Report normality, homogeneity, sphericity if provided.
+   Layer 7 - Post Hoc Reporting: Report pairwise comparisons if provided.
+   Layer 8 - Graph Interpretation: Reference any charts/figures if data exists.
+5. After each table reference, add a footnote line: *p < .05. **p < .01. ***p < .001.
+6. Report p-values to 3 decimal places; use p < .001 for very small values.
+7. Avoid scientific notation. Round to 3 decimal places.
 
 ANALYSIS RESULTS (use exact numbers from these):
 ${resultsDetail}
@@ -49,7 +64,7 @@ ${hypotheses.map((h: any) => `${h.hypothesis_id}: ${h.statement} (${h.hypothesis
 ${sectionFilter}
 
 Return a JSON object with these exact keys: sample, measurement, descriptive, reliability, correlation, regression, hypothesis, diagnostics, integrated, summary.
-Each key should contain 2-4 paragraphs of academic text for that section. Reference actual test statistics, p-values, effect sizes from the data. If no data exists for a section, return a brief placeholder string.
+Each key should contain 2-4 paragraphs of academic text for that section following the 8-layer structure. Reference actual test statistics, p-values, effect sizes from the data. If no data exists for a section, return a brief placeholder string.
 IMPORTANT: Return complete, valid JSON. Do not truncate.`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {

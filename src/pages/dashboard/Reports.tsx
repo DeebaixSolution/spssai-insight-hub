@@ -7,45 +7,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import {
-  Search,
-  FileText,
-  FileDown,
-  Trash2,
-  Eye,
-  MoreHorizontal,
-  Crown,
-  BarChart3,
-  Table,
-  MessageSquare,
-  Calendar,
+  Search, FileText, FileDown, Trash2, Eye, MoreHorizontal, Crown,
+  BarChart3, Table, MessageSquare, Calendar, Play, ArrowRight,
 } from 'lucide-react';
 import { usePlanLimits } from '@/hooks/usePlanLimits';
 import { UpgradePrompt } from '@/components/plan/UpgradePrompt';
@@ -67,10 +44,20 @@ interface Report {
     ai_interpretation: string | null;
     apa_results: string | null;
     discussion: string | null;
-    project?: {
-      name: string;
-    };
+    project?: { name: string };
   };
+}
+
+interface SavedAnalysis {
+  id: string;
+  current_step: number;
+  status: string;
+  research_question: string | null;
+  test_type: string | null;
+  test_category: string | null;
+  created_at: string;
+  updated_at: string;
+  project: { name: string } | null;
 }
 
 const Reports = () => {
@@ -85,41 +72,40 @@ const Reports = () => {
   const [deleteReport, setDeleteReport] = useState<Report | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
+  const [activeTab, setActiveTab] = useState('analyses');
 
-  // Fetch reports with analysis info
-  const { data: reports = [], isLoading } = useQuery({
+  // Fetch saved analyses
+  const { data: analyses = [], isLoading: analysesLoading } = useQuery({
+    queryKey: ['saved-analyses', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('analyses')
+        .select(`*, project:projects(name)`)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return data as SavedAnalysis[];
+    },
+    enabled: !!user,
+  });
+
+  // Fetch reports
+  const { data: reports = [], isLoading: reportsLoading } = useQuery({
     queryKey: ['reports', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('reports')
-        .select(`
-          *,
-          analysis:analyses(
-            test_type,
-            research_question,
-            ai_interpretation,
-            apa_results,
-            discussion,
-            project:projects(name)
-          )
-        `)
+        .select(`*, analysis:analyses(test_type, research_question, ai_interpretation, apa_results, discussion, project:projects(name))`)
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data as Report[];
     },
     enabled: !!user,
   });
 
-  // Delete report mutation
   const deleteMutation = useMutation({
     mutationFn: async (reportId: string) => {
-      const { error } = await supabase
-        .from('reports')
-        .delete()
-        .eq('id', reportId);
-
+      const { error } = await supabase.from('reports').delete().eq('id', reportId);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -127,10 +113,7 @@ const Reports = () => {
       toast.success('Report deleted successfully');
       setDeleteReport(null);
     },
-    onError: (error) => {
-      toast.error('Failed to delete report');
-      console.error(error);
-    },
+    onError: () => toast.error('Failed to delete report'),
   });
 
   const handleDelete = async () => {
@@ -140,14 +123,12 @@ const Reports = () => {
     setIsDeleting(false);
   };
 
-  const handleDownload = (report: Report) => {
-    if (!isPro) {
-      setShowUpgradePrompt(true);
-      return;
-    }
-    
-    // TODO: Implement actual download logic
-    toast.info('Download feature coming soon!');
+  const handleResumeAnalysis = (analysisId: string) => {
+    navigate('/dashboard/new-analysis', { state: { analysisId } });
+  };
+
+  const handleReExport = (analysisId: string) => {
+    navigate('/dashboard/new-analysis', { state: { analysisId, goToStep: 13 } });
   };
 
   const filteredReports = reports.filter(
@@ -157,25 +138,34 @@ const Reports = () => {
       r.analysis?.test_type?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getFormatBadge = (format: string) => {
-    const variants: Record<string, 'default' | 'secondary' | 'outline'> = {
-      docx: 'default',
-      pdf: 'secondary',
+  const filteredAnalyses = analyses.filter(
+    (a) =>
+      (a.project as any)?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.research_question?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.test_type?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getStepLabel = (step: number) => {
+    const labels: Record<number, string> = {
+      1: 'Upload', 2: 'Variables', 3: 'Research', 4: 'Descriptive', 5: 'Parametric',
+      6: 'Non-Parametric', 7: 'ANOVA/GLM', 8: 'Correlation', 9: 'Regression',
+      10: 'Measurement', 11: 'Chapter 4', 12: 'Chapter 5', 13: 'Export',
     };
-    return (
-      <Badge variant={variants[format] || 'outline'}>
-        {format.toUpperCase()}
-      </Badge>
-    );
+    return labels[step] || `Step ${step}`;
   };
+
+  const getFormatBadge = (fmt: string) => (
+    <Badge variant={fmt === 'doc' ? 'default' : 'secondary'}>{fmt.toUpperCase()}</Badge>
+  );
+
+  const isLoading = activeTab === 'analyses' ? analysesLoading : reportsLoading;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t.dashboard.reports}</h1>
-          <p className="text-muted-foreground">View and download your analysis reports</p>
+          <p className="text-muted-foreground">View saved analyses, resume work, or re-export documents</p>
         </div>
         <Button variant="outline" onClick={() => navigate('/dashboard/new-analysis')}>
           <BarChart3 className="w-4 h-4 mr-2" />
@@ -183,125 +173,196 @@ const Reports = () => {
         </Button>
       </div>
 
-      {/* Search */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search reports..."
+          placeholder="Search analyses and reports..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-10"
         />
       </div>
 
-      {/* Reports Grid */}
-      {isLoading ? (
-        <div className="data-card flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
-        </div>
-      ) : filteredReports.length === 0 ? (
-        <div className="data-card text-center py-12">
-          <FileText className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-foreground mb-2">
-            {searchQuery ? 'No reports found' : 'No reports yet'}
-          </h3>
-          <p className="text-muted-foreground mb-4">
-            {searchQuery
-              ? 'Try adjusting your search query'
-              : 'Complete an analysis and export to create a report'}
-          </p>
-          {!searchQuery && (
-            <Button variant="hero" onClick={() => navigate('/dashboard/new-analysis')}>
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Start Analysis
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredReports.map((report) => (
-            <div
-              key={report.id}
-              className="data-card hover:border-primary/50 transition-colors cursor-pointer group"
-              onClick={() => setSelectedReport(report)}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-primary" />
-                  </div>
-                  {getFormatBadge(report.format)}
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setSelectedReport(report); }}>
-                      <Eye className="w-4 h-4 mr-2" />
-                      Preview
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDownload(report); }}>
-                      <FileDown className="w-4 h-4 mr-2" />
-                      Download
-                      {!isPro && <Crown className="w-3 h-3 ml-1 text-warning" />}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={(e) => { e.stopPropagation(); setDeleteReport(report); }}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="analyses">
+            <BarChart3 className="w-3 h-3 mr-1" /> Saved Analyses ({analyses.length})
+          </TabsTrigger>
+          <TabsTrigger value="reports">
+            <FileText className="w-3 h-3 mr-1" /> Exports ({reports.length})
+          </TabsTrigger>
+        </TabsList>
 
-              <h3 className="font-semibold text-foreground mb-1 truncate">{report.title}</h3>
-              <p className="text-sm text-muted-foreground mb-3 truncate">
-                {report.analysis?.project?.name || 'Unknown Project'}
-              </p>
-
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                {report.analysis?.test_type && (
-                  <div className="flex items-center gap-1">
-                    <BarChart3 className="w-3 h-3" />
-                    {report.analysis.test_type}
-                  </div>
-                )}
-                <div className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {format(new Date(report.created_at), 'MMM d, yyyy')}
-                </div>
-              </div>
-
-              {/* Included sections indicators */}
-              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
-                {report.include_tables && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Table className="w-3 h-3" />
-                    Tables
-                  </div>
-                )}
-                {report.include_charts && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <BarChart3 className="w-3 h-3" />
-                    Charts
-                  </div>
-                )}
-                {(report.sections_included as string[] | null)?.includes('interpretation') && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MessageSquare className="w-3 h-3" />
-                    AI
-                  </div>
-                )}
-              </div>
+        {/* SAVED ANALYSES TAB */}
+        <TabsContent value="analyses">
+          {isLoading ? (
+            <div className="data-card flex items-center justify-center py-12">
+              <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
             </div>
-          ))}
-        </div>
-      )}
+          ) : filteredAnalyses.length === 0 ? (
+            <div className="data-card text-center py-12">
+              <BarChart3 className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">No saved analyses</h3>
+              <p className="text-muted-foreground mb-4">Start a new analysis to see it here</p>
+              <Button variant="hero" onClick={() => navigate('/dashboard/new-analysis')}>
+                <BarChart3 className="w-4 h-4 mr-2" /> Start Analysis
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredAnalyses.map((analysis) => (
+                <div
+                  key={analysis.id}
+                  className="data-card hover:border-primary/50 transition-colors group"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <BarChart3 className="w-5 h-5 text-primary" />
+                      </div>
+                      <Badge variant={analysis.status === 'completed' ? 'default' : 'secondary'}>
+                        {analysis.status}
+                      </Badge>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      Step {analysis.current_step}/13
+                    </Badge>
+                  </div>
+
+                  <h3 className="font-semibold text-foreground mb-1 truncate">
+                    {(analysis.project as any)?.name || 'Untitled Project'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-2 truncate">
+                    {analysis.research_question || 'No research question set'}
+                  </p>
+
+                  {/* Step progress bar */}
+                  <div className="w-full bg-muted rounded-full h-1.5 mb-3">
+                    <div
+                      className="bg-primary h-1.5 rounded-full transition-all"
+                      style={{ width: `${(analysis.current_step / 13) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Currently at: {getStepLabel(analysis.current_step)}
+                  </p>
+
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
+                    {analysis.test_type && (
+                      <div className="flex items-center gap-1">
+                        <BarChart3 className="w-3 h-3" />
+                        {analysis.test_type}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {format(new Date(analysis.updated_at), 'MMM d, yyyy')}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-3 border-t border-border">
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleResumeAnalysis(analysis.id)}
+                    >
+                      <Play className="w-3 h-3 mr-1" /> Resume
+                    </Button>
+                    {analysis.current_step >= 11 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReExport(analysis.id)}
+                      >
+                        <FileDown className="w-3 h-3 mr-1" /> Export
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* EXPORTS TAB */}
+        <TabsContent value="reports">
+          {reportsLoading ? (
+            <div className="data-card flex items-center justify-center py-12">
+              <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+            </div>
+          ) : filteredReports.length === 0 ? (
+            <div className="data-card text-center py-12">
+              <FileText className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">No exports yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Complete an analysis and export from Step 13 to see reports here
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredReports.map((report) => (
+                <div
+                  key={report.id}
+                  className="data-card hover:border-primary/50 transition-colors cursor-pointer group"
+                  onClick={() => setSelectedReport(report)}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-primary" />
+                      </div>
+                      {getFormatBadge(report.format)}
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleReExport(report.analysis_id); }}>
+                          <ArrowRight className="w-4 h-4 mr-2" /> Re-export
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => { e.stopPropagation(); setDeleteReport(report); }}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <h3 className="font-semibold text-foreground mb-1 truncate">{report.title}</h3>
+                  <p className="text-sm text-muted-foreground mb-3 truncate">
+                    {report.analysis?.project?.name || 'Unknown Project'}
+                  </p>
+
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {format(new Date(report.created_at), 'MMM d, yyyy')}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
+                    {report.include_tables && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Table className="w-3 h-3" /> Tables
+                      </div>
+                    )}
+                    {report.include_charts && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <BarChart3 className="w-3 h-3" /> Charts
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Report Preview Modal */}
       <Dialog open={!!selectedReport} onOpenChange={() => setSelectedReport(null)}>
@@ -357,18 +418,15 @@ const Reports = () => {
           </Tabs>
 
           <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setSelectedReport(null)}>
-              Close
-            </Button>
+            <Button variant="outline" onClick={() => setSelectedReport(null)}>Close</Button>
             <Button
               variant="hero"
               onClick={() => {
-                if (selectedReport) handleDownload(selectedReport);
+                if (selectedReport) handleReExport(selectedReport.analysis_id);
+                setSelectedReport(null);
               }}
             >
-              <FileDown className="w-4 h-4 mr-2" />
-              Download {selectedReport?.format.toUpperCase()}
-              {!isPro && <Crown className="w-3 h-3 ml-1" />}
+              <ArrowRight className="w-4 h-4 mr-2" /> Go to Export
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -396,12 +454,7 @@ const Reports = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Upgrade Prompt */}
-      <UpgradePrompt
-        open={showUpgradePrompt}
-        onOpenChange={setShowUpgradePrompt}
-        feature="Report Downloads"
-      />
+      <UpgradePrompt open={showUpgradePrompt} onOpenChange={setShowUpgradePrompt} feature="Report Downloads" />
     </div>
   );
 };
