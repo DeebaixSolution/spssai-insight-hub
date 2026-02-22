@@ -840,12 +840,37 @@ WRITING STANDARDS:
 - Write in formal academic English suitable for a doctoral dissertation
 - NEVER use AI meta-language like "I analyzed", "The AI found", "Let me explain"
 - Use passive voice and third person throughout
+- Past tense only
+- No conversational language, no filler text, no repetition
 - Be precise with statistical notation - italicize test statistics (t, F, r, p, χ², η²)
 - Report exact p-values to three decimal places (p = .023), except use p < .001 for very small values
+- Round all values to 3 decimal places; avoid scientific notation
 
 TEST-SPECIFIC REQUIREMENTS for ${writingLogic.name}:
 - APA notation: ${writingLogic.apaNotation}
 - Required statistics: ${writingLogic.requiredStats.join(', ')}
+`;
+
+  const eightLayerStructure = `
+MANDATORY 8-LAYER REPORTING STRUCTURE:
+Every statistical result MUST follow these 8 layers in order:
+
+Layer 1 - Test Identification: State what analysis was conducted and why.
+Layer 2 - Statistical Evidence: Report in APA-7 format using exact notation (e.g., F(df1, df2) = X.XX, p = .XXX, η² = .XX).
+Layer 3 - Decision Rule: If p < .05 → "The null hypothesis was rejected." If p ≥ .05 → "The null hypothesis was not rejected."
+Layer 4 - Effect Size Interpretation: Classify using standard thresholds:
+  η² ≥ .14 = Large, .06–.13 = Medium, .01–.05 = Small
+  Cohen's d ≥ .80 = Large, .50–.79 = Medium, .20–.49 = Small
+  r ≥ .50 = Strong, .30–.49 = Moderate, .10–.29 = Weak
+  R² ≥ .26 = Large, .13–.25 = Medium, .02–.12 = Small
+Layer 5 - Practical Interpretation: Translate the statistical meaning into scientific context.
+Layer 6 - Assumption Reporting: Report normality (Shapiro-Wilk), homogeneity (Levene's), sphericity (Mauchly's), multicollinearity if provided.
+Layer 7 - Post Hoc Reporting: Report pairwise comparisons (Tukey HSD, Bonferroni, etc.) if provided.
+Layer 8 - Graph Interpretation: Reference any charts/figures if data exists.
+
+TABLE FOOTNOTES (add after every results table reference):
+*p < .05. **p < .01. ***p < .001.
+Note. N = [sample size]. The null hypothesis was [rejected/not rejected] at the .05 significance level.
 `;
 
   const supervisorModeAdditions = supervisorMode ? `
@@ -860,6 +885,7 @@ SUPERVISOR MODE - Use conservative language:
       return `You are a statistics expert. Write a plain-language summary using ONLY the provided data.
 
 ${baseGuidelines}
+${eightLayerStructure}
 ${supervisorModeAdditions}
 
 Keep it concise (2-3 paragraphs). Use the exact statistics provided.`;
@@ -870,12 +896,14 @@ Keep it concise (2-3 paragraphs). Use the exact statistics provided.`;
 FORMAT: ${writingLogic.apaNotation}
 
 ${baseGuidelines}
+${eightLayerStructure}
 ${supervisorModeAdditions}`;
 
     case 'discussion':
       return `You are a research methodology expert. Write a Discussion section using ONLY the provided results.
 
 ${baseGuidelines}
+${eightLayerStructure}
 ${supervisorModeAdditions}`;
 
     case 'methodology':
@@ -885,24 +913,27 @@ ${baseGuidelines}
 ${supervisorModeAdditions}`;
 
     case 'full-results':
-      return `You are a statistics expert writing a comprehensive Chapter Four Results section.
+      return `You are the SPSS AI Academic Reporting Engine writing a comprehensive Chapter Four Results section.
 
-STRUCTURE REQUIRED:
-1. Preliminary analyses (assumption checks)
-2. Descriptive statistics
-3. Main analysis results with EXACT statistics
-4. Table interpretation
-5. Hypothesis decision (if applicable)
+STRUCTURE REQUIRED (follow 8-layer format for EACH statistical result):
+1. Preliminary analyses (assumption checks - Layer 6)
+2. Descriptive statistics with table references
+3. Main analysis results following all 8 layers
+4. Table interpretation with footnotes
+5. Hypothesis decision (Layer 3)
 
 ${baseGuidelines}
+${eightLayerStructure}
 ${supervisorModeAdditions}
 
-Use ONLY the data provided. Include separate paragraphs for table and figure interpretation.`;
+Use ONLY the data provided. Include separate paragraphs for table and figure interpretation.
+After EACH table reference, add: *p < .05. **p < .01. ***p < .001.`;
 
     default:
       return `You are a helpful statistics assistant. Use ONLY the provided data.
 
 ${baseGuidelines}
+${eightLayerStructure}
 ${supervisorModeAdditions}`;
   }
 }
