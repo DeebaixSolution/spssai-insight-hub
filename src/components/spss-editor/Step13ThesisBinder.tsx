@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileDown, Crown, CheckCircle, AlertCircle, Download, RefreshCw } from 'lucide-react';
+import { FileDown, Crown, CheckCircle, AlertCircle, Download, RefreshCw, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -53,7 +53,6 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
       ]);
 
       const ch5Record = ch5.data?.[0];
-      // Chapter 5 is "exists" if the record exists AND has meaningful text content
       const ch5Text = ch5Record?.chapter5_text || '';
       const ch5Exists = !!ch5Record && ch5Text.trim().length > 50;
 
@@ -71,7 +70,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
     }
   };
 
-  const handleExport = async (format: 'word' | 'word-doc', chapterFilter?: 'both' | 'chapter4' | 'chapter5') => {
+  const handleExport = async (format: 'word' | 'word-doc', chapterFilter?: 'both' | 'chapter4' | 'chapter5' | 'appendix' | 'all') => {
     if (!analysisId || !user) return;
 
     setIsExporting(true);
@@ -97,27 +96,41 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
 
       if (error) throw error;
 
-      // Save export metadata
-      await supabase.from('thesis_exports').insert([{
-        analysis_id: analysisId,
-        user_id: user.id,
-        export_type: format,
-        version: Math.max(status.chapter4.version, status.chapter5.version),
-        file_url: null,
-      }]);
-
       if (data?.content) {
         const blob = new Blob([data.content], { type: 'text/html;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        // .doc extension opens natively in Word; .htm for browser preview
         const ext = format === 'word-doc' ? 'doc' : 'htm';
-        a.download = `thesis-chapters-${chapterFilter || 'both'}.${ext}`;
+        const filterLabel = chapterFilter === 'all' ? 'complete-thesis' : (chapterFilter || 'both');
+        a.download = `thesis-${filterLabel}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+
+        // Save export metadata + create report record
+        const exportVersion = Math.max(status.chapter4.version, status.chapter5.version);
+        await Promise.all([
+          supabase.from('thesis_exports').insert([{
+            analysis_id: analysisId,
+            user_id: user.id,
+            export_type: `${format}-${chapterFilter || 'both'}`,
+            version: exportVersion,
+            file_url: null,
+          }]),
+          // Also create a reports record so it appears on Reports page
+          supabase.from('reports').insert([{
+            analysis_id: analysisId,
+            user_id: user.id,
+            title: `Thesis Export – ${filterLabel.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
+            format: ext,
+            include_charts: true,
+            include_tables: true,
+            sections_included: [chapterFilter || 'both'],
+          }]),
+        ]);
+
         toast.success(
           format === 'word-doc'
             ? 'Word document downloaded! Open with Microsoft Word.'
@@ -137,7 +150,6 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
   const readyToExport = status.chapter4.exists || status.chapter5.exists;
   const completedBlocks = status.blocks.items.filter((b: any) => b.status !== 'pending');
 
-  // Export progress steps
   const progressSteps = [
     { label: `Analysis Blocks (${completedBlocks.length}/${status.blocks.count})`, done: completedBlocks.length > 0 },
     { label: `Chapter 4 v${status.chapter4.version || '–'}`, done: status.chapter4.exists },
@@ -260,17 +272,40 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
           <div className="border rounded-lg p-4 space-y-3">
             <h4 className="font-medium">Export Options</h4>
             <p className="text-xs text-muted-foreground">
-              The export includes all analysis results, tables, and interpretations from Steps 4–10. 
-              Chapter 4 is AI-generated academic text based on those results. Tables are embedded with their APA narrative.
+              The export includes all analysis results, tables, charts, and interpretations from Steps 4–10. 
+              Charts are rendered as data tables in the Word document for full compatibility.
             </p>
+
+            {/* PRIMARY: Export Complete Thesis */}
+            <div className="border-2 border-primary/30 rounded-lg p-3 bg-primary/5">
+              <div className="flex items-center gap-2 mb-2">
+                <BookOpen className="w-4 h-4 text-primary" />
+                <h5 className="text-sm font-semibold text-primary">Complete Thesis Export</h5>
+              </div>
+              <p className="text-xs text-muted-foreground mb-2">
+                Single document with Chapter 4 + Chapter 5 + Appendix + References
+              </p>
+              <Button
+                onClick={() => handleExport('word-doc', 'all')}
+                disabled={!readyToExport || isExporting}
+                className="w-full"
+                size="lg"
+              >
+                {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export Complete Thesis (.doc)
+              </Button>
+            </div>
+
+            {/* Individual exports */}
             <div className="flex gap-3">
               <Button
                 onClick={() => handleExport('word-doc', 'both')}
                 disabled={!readyToExport || isExporting}
+                variant="outline"
                 className="flex-1"
               >
-                {isExporting ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
-                Export Word (.doc)
+                <Download className="w-4 h-4 mr-2" />
+                Ch. 4 + 5 (.doc)
               </Button>
               <Button
                 onClick={() => handleExport('word', 'both')}
@@ -279,7 +314,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
                 className="flex-1"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Export HTML (.htm)
+                Ch. 4 + 5 (.htm)
               </Button>
             </div>
             <div className="flex gap-3">
@@ -308,7 +343,7 @@ export function Step13ThesisBinder({ analysisId }: Step13Props) {
               </p>
               <Button
                 variant="outline" size="sm"
-                onClick={() => handleExport('word-doc', 'appendix' as any)}
+                onClick={() => handleExport('word-doc', 'appendix')}
                 disabled={status.blocks.count === 0 || isExporting}
                 className="w-full"
               >

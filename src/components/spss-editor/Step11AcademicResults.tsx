@@ -66,11 +66,8 @@ const sectionCategoryMap: Record<string, string[]> = {
   summary: [],
 };
 
-// Test types that belong to correlation section even when stored under other categories (e.g. Spearman as nonparametric)
 const CORRELATION_TEST_TYPES = ['spearman', 'pearson', 'kendall', 'partial-correlation', 'point-biserial'];
-// Test types that belong to reliability section
 const RELIABILITY_TEST_TYPES = ['cronbach-alpha', 'factor-analysis', 'efa', 'cfa', 'composite-reliability'];
-// Test types that belong to regression section
 const REGRESSION_TEST_TYPES_PATTERN = 'regression';
 
 export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
@@ -106,9 +103,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         const mapping = chapterRes.data[0].section_mapping as Record<string, unknown> | undefined;
         if (mapping) {
           const restored = CHAPTER_SECTIONS.map(s => ({
-            id: s.id,
-            title: s.title,
-            number: s.number,
+            id: s.id, title: s.title, number: s.number,
             content: typeof mapping[s.id] === 'string' ? mapping[s.id] as string : JSON.stringify(mapping[s.id] ?? ''),
             tables: getBlocksForSection(s.id, blocksRes.data || []),
             hasSavedData: !!mapping[s.id],
@@ -128,7 +123,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     return allBlocks.filter(b => {
       if (b.status === 'pending') return false;
       if (categories.includes(b.test_category)) return true;
-      // Special cross-category mappings based on test_type
       if (sectionId === 'correlation' && CORRELATION_TEST_TYPES.includes(b.test_type)) return true;
       if (sectionId === 'reliability' && RELIABILITY_TEST_TYPES.includes(b.test_type)) return true;
       if ((sectionId === 'regression' || sectionId === 'diagnostics') && b.test_type?.includes(REGRESSION_TEST_TYPES_PATTERN)) return true;
@@ -155,10 +149,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
   }, [blocks]);
 
   const handleGenerate = async () => {
-    if (!analysisId) {
-      toast.error('No analysis ID found. Please save your analysis first.');
-      return;
-    }
+    if (!analysisId) { toast.error('No analysis ID found.'); return; }
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-chapter4', {
@@ -179,7 +170,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         setGeneratedSections(sections);
         setActiveTab('editor');
         toast.success('Chapter 4 generated! Auto-saving...');
-        // Auto-save after generation
         const sectionMapping: Record<string, string> = {};
         sections.forEach(s => { sectionMapping[s.id] = s.content; });
         const fullText = sections.map(s => `## ${s.number} ${s.title}\n\n${s.content}`).join('\n\n');
@@ -199,7 +189,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     }
   };
 
-  // Regenerate a single section
   const handleRegenerateSection = async (sectionId: string) => {
     if (!analysisId) return;
     setRegeneratingSection(sectionId);
@@ -229,11 +218,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
       const sectionMapping: Record<string, string> = {};
       generatedSections.forEach(s => { sectionMapping[s.id] = s.content; });
       const fullText = generatedSections.map(s => `## ${s.number} ${s.title}\n\n${s.content}`).join('\n\n');
-      const record = {
-        analysis_id: analysisId, full_text: fullText,
-        section_mapping: sectionMapping as any,
-        version: (savedChapter?.version || 0) + 1,
-      };
+      const record = { analysis_id: analysisId, full_text: fullText, section_mapping: sectionMapping as any, version: (savedChapter?.version || 0) + 1 };
       if (savedChapter?.id) {
         await supabase.from('chapter_results').update(record).eq('id', savedChapter.id);
       } else {
@@ -251,7 +236,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     setGeneratedSections(prev => prev.map(s => s.id === sectionId ? { ...s, content } : s));
   };
 
-  // Case-insensitive cell resolver
   const resolveCell = (row: any, header: string): any => {
     if (row[header] !== undefined) return row[header];
     const keys = Object.keys(row);
@@ -299,6 +283,54 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
     });
   };
 
+  // Table footnotes component
+  const renderTableFootnotes = (block: AnalysisBlockData) => {
+    const hasPValues = block.results?.tables?.some((t: any) =>
+      t.rows?.some((r: any) => {
+        const row = typeof r === 'object' ? r : {};
+        return row.p !== undefined || row['p-value'] !== undefined || row['Sig.'] !== undefined;
+      })
+    );
+    if (!hasPValues && !block.narrative?.hypothesis_decision) return null;
+    return (
+      <div className="mt-1 space-y-0.5">
+        {hasPValues && (
+          <p className="text-[10px] text-muted-foreground italic">*p &lt; .05. **p &lt; .01. ***p &lt; .001.</p>
+        )}
+        {block.narrative?.hypothesis_decision && (
+          <p className="text-[10px] text-muted-foreground italic">Note. {block.narrative.hypothesis_decision}</p>
+        )}
+      </div>
+    );
+  };
+
+  // Render structured narrative (8-layer)
+  const renderStructuredNarrative = (block: AnalysisBlockData) => {
+    const n = block.narrative;
+    if (!n) return null;
+    // Check if structured narrative exists
+    if (n.methodology || n.statistical_result || n.effect_interpretation) {
+      return (
+        <div className="mt-2 space-y-1 font-serif text-xs">
+          {n.methodology && <p className="text-foreground">{n.methodology}</p>}
+          {n.statistical_result && <p className="text-foreground">{n.statistical_result}</p>}
+          {n.effect_interpretation && <p className="text-foreground">{n.effect_interpretation}</p>}
+          {n.assumption_report && <p className="text-foreground">{n.assumption_report}</p>}
+          {n.posthoc_report && <p className="text-foreground">{n.posthoc_report}</p>}
+          {n.graph_interpretation && <p className="text-foreground">{n.graph_interpretation}</p>}
+          {n.hypothesis_decision && <p className="text-foreground font-medium">{n.hypothesis_decision}</p>}
+        </div>
+      );
+    }
+    // Fallback to simple narrative
+    return (
+      <>
+        {n.apa && <p className="text-xs text-muted-foreground mt-1 italic font-serif">{n.apa}</p>}
+        {n.interpretation && n.interpretation !== n.apa && <p className="text-xs text-foreground mt-1 font-serif">{n.interpretation}</p>}
+      </>
+    );
+  };
+
   // Render SPSS-style table from block results
   const renderBlockTable = (block: AnalysisBlockData) => {
     const tables = block.results?.tables;
@@ -317,8 +349,8 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
               </table>
             </div>
           )}
-          {block.narrative?.apa && <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>}
-          {block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa && <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>}
+          {renderTableFootnotes(block)}
+          {renderStructuredNarrative(block)}
           {renderBlockCharts(block)}
           {!summary && !statistics && !block.narrative?.apa && !block.results?.charts?.length && (
             <p className="text-xs text-muted-foreground italic">No table data available for this block.</p>
@@ -345,8 +377,8 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
             </div>
           </div>
         ))}
-        {block.narrative?.apa && <p className="text-xs text-muted-foreground mt-1 italic font-serif">{block.narrative.apa}</p>}
-        {block.narrative?.interpretation && block.narrative.interpretation !== block.narrative.apa && <p className="text-xs text-foreground mt-1 font-serif">{block.narrative.interpretation}</p>}
+        {renderTableFootnotes(block)}
+        {renderStructuredNarrative(block)}
         {renderBlockCharts(block)}
       </div>
     );
@@ -438,7 +470,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
           )}
         </TabsContent>
 
-        {/* ALL BLOCKS TAB — shows every analysis block with full tables + interpretation */}
         <TabsContent value="allblocks" className="space-y-4">
           {blocks.length === 0 ? (
             <Alert>
@@ -471,7 +502,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
         <TabsContent value="editor" className="space-y-4">
           <div className="flex gap-2 items-center">
             <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isGenerating}>
-              <RefreshCw className="w-4 h-4 mr-2" /> Regenerate All
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Regenerate All
             </Button>
             <Button variant="ghost" size="sm" onClick={handleSave}>
               <Save className="w-3 h-3 mr-1" /> Save
@@ -488,11 +519,7 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
                     <div className="bg-muted px-4 py-2 flex items-center justify-between">
                       <h4 className="text-sm font-semibold">{section.number} {section.title}</h4>
                       <div className="flex gap-1">
-                        <Button
-                          variant="ghost" size="sm"
-                          onClick={() => handleRegenerateSection(section.id)}
-                          disabled={regeneratingSection === section.id}
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => handleRegenerateSection(section.id)} disabled={regeneratingSection === section.id}>
                           {regeneratingSection === section.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                           <span className="ml-1 text-xs">AI</span>
                         </Button>
@@ -502,7 +529,6 @@ export function Step11AcademicResults({ analysisId, projectId }: Step11Props) {
                       </div>
                     </div>
                     <div className="p-4">
-                      {/* Inline SPSS tables from analysis blocks */}
                       {sectionBlocks.length > 0 && (
                         <div className="mb-4 bg-muted/30 rounded-lg p-3">
                           <p className="text-xs font-medium text-muted-foreground mb-2">📊 Analysis Tables</p>
